@@ -23,7 +23,7 @@ PREDICTION_CANDIDATES = [
 PREDICTIONS_PATH = next((candidate for candidate in PREDICTION_CANDIDATES if candidate.exists()), PREDICTION_CANDIDATES[0])
 DEFAULT_BANKROLL_EUR = 1000.0
 
-st.set_page_config(page_title="palavoiBetPredictor by Jason", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="palavoiBetPredictor ", page_icon="⚽", layout="wide")
 
 st.markdown(
     """
@@ -753,7 +753,7 @@ def load_status_info() -> tuple[str, int]:
 
 def main():
     with st.sidebar:
-        st.title("⚽ palavoiBetPredictor by Jason")
+        st.title("⚽ palavoiBetPredictor ")
         st.caption("• Premier League value betting dashboard")
 
         if st.button("🔄 Run Live Sync & Retrain"):
