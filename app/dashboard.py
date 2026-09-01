@@ -9,8 +9,18 @@ import plotly.graph_objects as go
 import streamlit as st
 
 ROOT = Path(__file__).resolve().parents[1]
+REPO_ROOT = ROOT.parent
 RAW_HISTORY_PATH = ROOT / "data" / "historical_raw" / "premier_league_10_years.csv"
-PREDICTIONS_PATH = ROOT / "data" / "predictions" / "live_upcoming_predictions.csv"
+PREDICTION_CANDIDATES = [
+    ROOT / "data" / "predictions" / "live_upcoming_predictions.csv",
+    ROOT / "data" / "predictions" / "live_predictions.csv",
+    ROOT / "data" / "live_upcoming_predictions.csv",
+    ROOT / "data" / "live_predictions.csv",
+    ROOT / "data" / "live_value_bets.csv",
+    REPO_ROOT / "data" / "predictions" / "live_upcoming_predictions.csv",
+    REPO_ROOT / "data" / "live_upcoming_predictions.csv",
+]
+PREDICTIONS_PATH = next((candidate for candidate in PREDICTION_CANDIDATES if candidate.exists()), PREDICTION_CANDIDATES[0])
 DEFAULT_BANKROLL_EUR = 1000.0
 
 st.set_page_config(page_title="palavoiBetPredictor by Jason", page_icon="⚽", layout="wide")
@@ -133,7 +143,7 @@ def sort_by_match_date(df: pd.DataFrame, date_col: str = "MatchDate") -> pd.Data
     return out
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=60)
 def load_raw_history() -> pd.DataFrame:
     if not RAW_HISTORY_PATH.exists():
         return pd.DataFrame()
@@ -144,15 +154,18 @@ def load_raw_history() -> pd.DataFrame:
     return df
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=60)
 def load_live_predictions() -> pd.DataFrame:
-    if not PREDICTIONS_PATH.exists():
+    existing_path = next((candidate for candidate in PREDICTION_CANDIDATES if candidate.exists()), None)
+    if existing_path is None:
         return pd.DataFrame()
-    df = pd.read_csv(PREDICTIONS_PATH, low_memory=False)
+    df = pd.read_csv(existing_path, low_memory=False)
     if df.empty:
         return df
     if "MatchDate" in df.columns:
         df["MatchDate"] = pd.to_datetime(df["MatchDate"], errors="coerce")
+    if "Date" in df.columns:
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
     return df
 
 
@@ -374,7 +387,7 @@ def evaluate_completed_season(raw_df: pd.DataFrame) -> dict:
     }
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=60)
 def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
     if prediction_df.empty:
         return pd.DataFrame(columns=[
@@ -531,7 +544,7 @@ def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
     return value_df.sort_values(["MatchDate", "EdgePct"], ascending=[True, False], kind="mergesort").reset_index(drop=True)
 
 
-@st.cache_data(show_spinner=False)
+@st.cache_data(show_spinner=False, ttl=60)
 def build_schedule(prediction_df: pd.DataFrame) -> pd.DataFrame:
     if prediction_df.empty:
         return pd.DataFrame(columns=["MatchDate", "HomeTeam", "AwayTeam", "Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No", "Prob_GG", "Prob_NG"])
@@ -654,6 +667,7 @@ def verdict_for_edge(edge_pct: float) -> tuple[str, str]:
     return "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ", "bad"
 
 
+@st.cache_data(show_spinner=False, ttl=60)
 def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     if prediction_df.empty:
@@ -661,13 +675,14 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
 
     for _, row in prediction_df.iterrows():
         match_label = f"{row.get('HomeTeam', '')} vs {row.get('AwayTeam', '')}"
-        match_date = row.get('MatchDate')
+        match_dt = pd.to_datetime(row.get('MatchDate'), errors="coerce")
         match_date_str = ""
-        if pd.notna(match_date):
-            try:
-                match_date_str = pd.to_datetime(match_date).strftime("%d/%m %H:%M")
-            except Exception:
-                match_date_str = str(match_date)
+        if pd.notna(match_dt):
+            match_date_str = match_dt.strftime("%d/%m %H:%M")
+        elif row.get('Date') is not None:
+            fallback_dt = pd.to_datetime(row.get('Date'), errors="coerce")
+            if pd.notna(fallback_dt):
+                match_date_str = fallback_dt.strftime("%d/%m %H:%M")
         market_specs = [
             ("1X2", "H", "Prob_Home", "B365H"),
             ("1X2", "D", "Prob_Draw", "B365D"),
@@ -717,20 +732,23 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
     verdict_df = pd.DataFrame(rows)
     if verdict_df.empty:
         return verdict_df
-    verdict_df["MatchDate"] = pd.to_datetime(verdict_df["MatchDate"], errors="coerce")
+    verdict_df["MatchDate"] = pd.to_datetime(verdict_df["MatchDate"], format="%d/%m %H:%M", errors="coerce")
     verdict_df = verdict_df.sort_values(["MatchDate", "Match", "Market", "Edge%"], ascending=[True, True, True, False], kind="mergesort").reset_index(drop=True)
     verdict_df["MatchDate"] = verdict_df["MatchDate"].dt.strftime("%d/%m %H:%M")
     return verdict_df
 
 
 def load_status_info() -> tuple[str, int]:
-    if PREDICTIONS_PATH.exists():
-        timestamp = datetime.fromtimestamp(PREDICTIONS_PATH.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+    prediction_path = next((candidate for candidate in PREDICTION_CANDIDATES if candidate.exists()), None)
+    if prediction_path is not None:
+        timestamp = datetime.fromtimestamp(prediction_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
     else:
         timestamp = "Never"
     prediction_df = load_live_predictions()
-    loaded_fixtures = prediction_df["HomeTeam"].nunique() if not prediction_df.empty else 0
-    return timestamp, loaded_fixtures
+    if prediction_df.empty:
+        return timestamp, 0
+    fixture_df = prediction_df[["HomeTeam", "AwayTeam"]].drop_duplicates().reset_index(drop=True)
+    return timestamp, len(fixture_df)
 
 
 def main():
