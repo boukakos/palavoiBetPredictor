@@ -110,11 +110,17 @@ def parse_date_series(values):
     values = pd.Series(values)
     if values.empty:
         return pd.to_datetime(pd.Series([], dtype="datetime64[ns]"))
-    string_values = values.astype(str).str.strip()
-    parsed = pd.to_datetime(string_values, format="%Y-%m-%d", errors="coerce")
+
+    string_values = values.astype(str).str.strip().replace({"nan": "", "NaT": "", "None": ""}, regex=False)
+    parsed = pd.to_datetime(string_values, format="mixed", errors="coerce")
     fallback_mask = parsed.isna()
     if fallback_mask.any():
-        parsed[fallback_mask] = pd.to_datetime(string_values[fallback_mask], dayfirst=True, errors="coerce")
+        fallback = pd.to_datetime(string_values[fallback_mask], format="%d/%m/%Y", errors="coerce")
+        parsed[fallback_mask] = fallback
+    if parsed.isna().any():
+        parsed = parsed.combine_first(pd.to_datetime(string_values, format="%Y-%m-%d", errors="coerce"))
+    if parsed.isna().any():
+        parsed = parsed.combine_first(pd.to_datetime(string_values, format="mixed", dayfirst=True, errors="coerce"))
     return parsed
 
 
@@ -468,6 +474,31 @@ def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
                         "EdgePct": float(edge),
                         "RiskTier": risk_tier,
                     })
+            elif market == "GG/NG":
+                for label, prob_key, odds_key in [
+                    ("GG", "Prob_GG", "B365GG"),
+                    ("NG", "Prob_NG", "B365NG"),
+                ]:
+                    if pd.isna(row.get(prob_key)):
+                        continue
+                    odds = row.get(odds_key)
+                    if pd.isna(odds):
+                        continue
+                    edge = max(0.0, (float(row[prob_key]) * float(odds) - 1.0) * 100.0)
+                    if edge < 3.0:
+                        continue
+                    risk_tier = "Standard Value" if float(row[prob_key]) >= 0.40 and float(odds) <= 3.40 else "[HIGH RISK / LONGSHOT]"
+                    value_rows.append({
+                        "MatchDate": row.get("MatchDate"),
+                        "HomeTeam": row.get("HomeTeam"),
+                        "AwayTeam": row.get("AwayTeam"),
+                        "Market": "GG/NG",
+                        "Outcome": label,
+                        "ModelProbability": float(row[prob_key]),
+                        "Odds": float(odds),
+                        "EdgePct": float(edge),
+                        "RiskTier": risk_tier,
+                    })
 
     if not value_rows:
         return pd.DataFrame(columns=[
@@ -503,7 +534,7 @@ def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
 @st.cache_data(show_spinner=False)
 def build_schedule(prediction_df: pd.DataFrame) -> pd.DataFrame:
     if prediction_df.empty:
-        return pd.DataFrame(columns=["MatchDate", "HomeTeam", "AwayTeam", "Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No"])
+        return pd.DataFrame(columns=["MatchDate", "HomeTeam", "AwayTeam", "Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No", "Prob_GG", "Prob_NG"])
 
     keys = [
         "MatchDate",
@@ -516,6 +547,8 @@ def build_schedule(prediction_df: pd.DataFrame) -> pd.DataFrame:
         "Prob_Under25",
         "Prob_BTTS_Yes",
         "Prob_BTTS_No",
+        "Prob_GG",
+        "Prob_NG",
     ]
     records = []
     for _, row in prediction_df.iterrows():
@@ -525,7 +558,7 @@ def build_schedule(prediction_df: pd.DataFrame) -> pd.DataFrame:
     if schedule.empty:
         return schedule
     schedule = schedule.drop_duplicates(subset=["HomeTeam", "AwayTeam"]).reset_index(drop=True)
-    for col in ["Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No"]:
+    for col in ["Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No", "Prob_GG", "Prob_NG"]:
         if col in schedule.columns:
             schedule[col] = pd.to_numeric(schedule[col], errors="coerce")
     schedule = sort_by_match_date(schedule, "MatchDate")
@@ -643,6 +676,8 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
             ("Over/Under 2.5", "Under", "Prob_Under25", "BbAv<2.5"),
             ("BTTS", "Yes", "Prob_BTTS_Yes", "BTTSYesOdds"),
             ("BTTS", "No", "Prob_BTTS_No", "BTTSNoOdds"),
+            ("GG/NG", "GG", "Prob_GG", "B365GG"),
+            ("GG/NG", "NG", "Prob_NG", "B365NG"),
         ]
         for market, pick, prob_key, odds_key in market_specs:
             probability = row.get(prob_key)
@@ -700,7 +735,7 @@ def load_status_info() -> tuple[str, int]:
 
 def main():
     with st.sidebar:
-        st.title("⚽ palavoiBetPredictor")
+        st.title("⚽ palavoiBetPredictor by Jason")
         st.caption("• Premier League value betting dashboard")
 
         if st.button("🔄 Run Live Sync & Retrain"):
@@ -835,7 +870,7 @@ def main():
                 future_matches = schedule_df.copy()
                 if "MatchDate" in future_matches.columns:
                     future_matches["MatchDate"] = pd.to_datetime(future_matches["MatchDate"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
-                for col in ["Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No"]:
+                for col in ["Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No", "Prob_GG", "Prob_NG"]:
                     if col in future_matches.columns:
                         future_matches[col] = pd.to_numeric(future_matches[col], errors="coerce") * 100.0
                 future_matches = future_matches.round(2)

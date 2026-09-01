@@ -1,6 +1,8 @@
 import argparse
 import io
 import json
+import math
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -23,7 +25,12 @@ DATA_DIR = ROOT / "data"
 RAW_HISTORY_FILE = DATA_DIR / "historical_raw" / "premier_league_10_years.csv"
 PROCESSED_FILE = DATA_DIR / "processed" / "model_features_10_years.csv"
 PREDICTION_DIR = DATA_DIR / "predictions"
-UPCOMING_FIXTURES_FILE = DATA_DIR / "upcoming_fixtures.csv"
+LOCAL_UPCOMING_FIXTURE_CANDIDATES = [
+    Path(os.path.join(os.path.dirname(__file__), "..", "data", "upcoming_fixtures.csv")),
+    Path("data/upcoming_fixtures.csv"),
+    DATA_DIR / "upcoming_fixtures.csv",
+]
+UPCOMING_FIXTURES_FILE = next((path for path in LOCAL_UPCOMING_FIXTURE_CANDIDATES if path.exists()), LOCAL_UPCOMING_FIXTURE_CANDIDATES[0])
 OUTPUT_CSV = PREDICTION_DIR / "live_upcoming_predictions.csv"
 OUTPUT_JSON = PREDICTION_DIR / "live_upcoming_predictions.json"
 
@@ -141,11 +148,18 @@ def parse_date_series(values):
     values = pd.Series(values)
     if values.empty:
         return pd.to_datetime(pd.Series([], dtype="datetime64[ns]"))
-    string_values = values.astype(str).str.strip()
-    parsed = pd.to_datetime(string_values, format="%Y-%m-%d", errors="coerce")
-    fallback_mask = parsed.isna()
-    if fallback_mask.any():
-        parsed[fallback_mask] = pd.to_datetime(string_values[fallback_mask], dayfirst=True, errors="coerce")
+
+    string_values = values.astype(str).str.strip().replace({"nan": "", "NaT": "", "None": ""}, regex=False)
+    parsed = pd.to_datetime(string_values, format="mixed", errors="coerce")
+    if parsed.isna().any():
+        fallback = pd.to_datetime(string_values, format="%d/%m/%Y", errors="coerce")
+        parsed = parsed.combine_first(fallback)
+    if parsed.isna().any():
+        parsed = pd.to_datetime(string_values, format="%Y-%m-%d", errors="coerce")
+    if parsed.isna().any():
+        parsed = pd.to_datetime(string_values, format="%d/%m/%Y %H:%M", errors="coerce")
+    if parsed.isna().any():
+        parsed = pd.to_datetime(string_values, format="mixed", dayfirst=True, errors="coerce")
     return parsed
 
 
@@ -366,6 +380,17 @@ def compute_current_elo_state(raw_history_df, team_name, as_of_date):
     return elo_ratings.get(team_name, 1500.0)
 
 
+def compute_gg_ng_probability(home_xg: float, away_xg: float):
+    home_xg = float(home_xg)
+    away_xg = float(away_xg)
+    if np.isnan(home_xg) or np.isnan(away_xg):
+        home_xg = 1.25
+        away_xg = 1.05
+    p_gg = (1.0 - np.exp(-max(home_xg, 0.0))) * (1.0 - np.exp(-max(away_xg, 0.0)))
+    p_gg = float(np.clip(p_gg, 0.0, 0.999999))
+    return p_gg, 1.0 - p_gg
+
+
 def make_fixture_feature_row(raw_history_df, fixture_row):
     fixture_date = pd.to_datetime(fixture_row["Date"])
     home_team = str(fixture_row["HomeTeam"]).strip()
@@ -531,6 +556,8 @@ def normalize_fixture_columns(df: pd.DataFrame) -> pd.DataFrame:
         "B365H": "B365H",
         "B365D": "B365D",
         "B365A": "B365A",
+        "B365GG": "B365GG",
+        "B365NG": "B365NG",
         "BbAv>2.5": "BbAv>2.5",
         "BbAv<2.5": "BbAv<2.5",
         "BbAH": "BbAH",
@@ -553,8 +580,9 @@ def normalize_fixture_columns(df: pd.DataFrame) -> pd.DataFrame:
     if "Date" in output.columns:
         output["Date"] = parse_date_series(output["Date"])
     if "Time" in output.columns and "Date" in output.columns:
-        combined = output["Date"].astype(str).str.replace("NaT", "", regex=False) + " " + output["Time"].astype(str)
-        output["Date"] = pd.to_datetime(combined, errors="coerce")
+        date_part = output["Date"].dt.strftime("%Y-%m-%d") if pd.api.types.is_datetime64_any_dtype(output["Date"]) else output["Date"].astype(str)
+        combined = date_part.astype(str).str.replace("NaT", "", regex=False) + " " + output["Time"].astype(str).str.strip()
+        output["Date"] = pd.to_datetime(combined, format="mixed", errors="coerce")
         output = output.drop(columns=["Time"])
 
     for col in ["HomeTeam", "AwayTeam"]:
@@ -594,18 +622,24 @@ def filter_epl_upcoming_fixtures(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def generate_mock_upcoming_fixtures(team_names=None, matchday_offset_days=3):
-    return pd.DataFrame(columns=["Div", "Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A", "BbAv>2.5", "BbAv<2.5", "BTTSYesOdds", "BTTSNoOdds"])
+    return pd.DataFrame(columns=["Div", "Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A", "BbAv>2.5", "BbAv<2.5", "B365GG", "B365NG", "BTTSYesOdds", "BTTSNoOdds"])
 
 
 def load_upcoming_fixtures():
-    if UPCOMING_FIXTURES_FILE.exists():
-        tmp = pd.read_csv(UPCOMING_FIXTURES_FILE, low_memory=False)
-        if not tmp.empty:
-            normalized = normalize_fixture_columns(tmp)
-            filtered = filter_epl_upcoming_fixtures(normalized)
-            if not filtered.empty:
-                print(f"Loaded {len(filtered)} fixtures from local CSV: {UPCOMING_FIXTURES_FILE.name}")
-                return filtered
+    for candidate in LOCAL_UPCOMING_FIXTURE_CANDIDATES:
+        if not candidate.exists():
+            continue
+        try:
+            tmp = pd.read_csv(candidate, low_memory=False)
+        except Exception:
+            continue
+        if tmp.empty:
+            continue
+        normalized = normalize_fixture_columns(tmp)
+        filtered = filter_epl_upcoming_fixtures(normalized)
+        if not filtered.empty:
+            print(f"Loaded {len(filtered)} fixtures from local CSV: {candidate.name}")
+            return filtered
 
     fetched = fetch_football_data_uk_fixtures()
     if not fetched.empty:
@@ -880,6 +914,42 @@ def generate_value_bets(prediction_rows):
                 }
             )
 
+        gg_prob = float(row.get("Prob_GG", 0.0))
+        ng_prob = 1.0 - gg_prob
+        gg_odd = safe_odd(row.get("B365GG", np.nan))
+        ng_odd = safe_odd(row.get("B365NG", np.nan))
+        for outcome, probability, odd in [("GG", gg_prob, gg_odd), ("NG", ng_prob, ng_odd)]:
+            if pd.isna(odd):
+                continue
+            current_edge = edge_pct(probability, odd)
+            if current_edge < MIN_EDGE_PERCENT:
+                continue
+            risk_tier = classify_risk(probability, odd)
+            kelly_fraction = max(0.0, ((odd - 1.0) * probability - (1.0 - probability)) / (odd - 1.0)) if odd > 1.0 else 0.0
+            stake = recommended_stake_for_value(probability, odd, risk_tier)
+            verdict_label, verdict_code = bet_verdict(probability, odd, kelly_fraction)
+            value_records.append(
+                {
+                    "MatchDate": row["Date"],
+                    "HomeTeam": row["HomeTeam"],
+                    "AwayTeam": row["AwayTeam"],
+                    "Market": "GG/NG",
+                    "Outcome": outcome,
+                    "ModelProbability": float(probability),
+                    "Odds": float(odd),
+                    "EdgePct": float(current_edge),
+                    "EV": float(expected_value_decimal(probability, odd)),
+                    "KellyFraction": float(kelly_fraction),
+                    "RiskTier": risk_tier,
+                    "StakeRecommendationEUR": float(stake),
+                    "RecommendedStakeEUR": float(stake),
+                    "Verdict": verdict_label,
+                    "VerdictCode": verdict_code,
+                    "Prob_GG": gg_prob,
+                    "Prob_NG": ng_prob,
+                }
+            )
+
     return pd.DataFrame(value_records)
 
 
@@ -970,6 +1040,8 @@ def score_upcoming_fixtures(raw_history_df, fixtures_df, models):
             "B365H": safe_odd(row.get("B365H", np.nan)),
             "B365D": safe_odd(row.get("B365D", np.nan)),
             "B365A": safe_odd(row.get("B365A", np.nan)),
+            "B365GG": safe_odd(row.get("B365GG", np.nan)),
+            "B365NG": safe_odd(row.get("B365NG", np.nan)),
             "BbAv>2.5": safe_odd(row.get("BbAv>2.5", np.nan)),
             "BbAv<2.5": safe_odd(row.get("BbAv<2.5", np.nan)),
             "BTTSYesOdds": safe_odd(row.get("BTTSYesOdds", np.nan)),
@@ -983,10 +1055,13 @@ def score_upcoming_fixtures(raw_history_df, fixtures_df, models):
         pred_1x2 = predict_fixture_market(models["1x2"], "1x2", x_1x2)
         pred_ou = predict_fixture_market(models["OU"], "OU", x_ou)
         pred_btts = predict_fixture_market(models["BTTS"], "BTTS", x_btts)
+        p_gg, p_ng = compute_gg_ng_probability(float(feature_row.get("Home_xG_L5", 1.25)), float(feature_row.get("Away_xG_L5", 1.05)))
+        pred_gg = {"Prob_GG": float(p_gg), "Prob_NG": float(p_ng)}
 
         match_record.update(pred_1x2)
         match_record.update(pred_ou)
         match_record.update(pred_btts)
+        match_record.update(pred_gg)
 
         # add explicit edge calculations so the CSV and dashboard can display each market's EV clearly
         for label, prob_key, odds_key, edge_key in [
@@ -997,6 +1072,8 @@ def score_upcoming_fixtures(raw_history_df, fixtures_df, models):
             ("Under", "Prob_Under25", "BbAv<2.5", "Edge_OU_Under"),
             ("Yes", "Prob_BTTS_Yes", "BTTSYesOdds", "Edge_BTTS_Yes"),
             ("No", "Prob_BTTS_No", "BTTSNoOdds", "Edge_BTTS_No"),
+            ("GG", "Prob_GG", "B365GG", "Edge_GG"),
+            ("NG", "Prob_NG", "B365NG", "Edge_NG"),
         ]:
             prob_val = match_record.get(prob_key)
             odd_val = safe_odd(match_record.get(odds_key, np.nan))
@@ -1020,6 +1097,8 @@ def save_predictions(prediction_df):
             "B365H",
             "B365D",
             "B365A",
+            "B365GG",
+            "B365NG",
             "BbAv>2.5",
             "BbAv<2.5",
             "BTTSYesOdds",
@@ -1031,6 +1110,8 @@ def save_predictions(prediction_df):
             "Prob_Under25",
             "Prob_BTTS_Yes",
             "Prob_BTTS_No",
+            "Prob_GG",
+            "Prob_NG",
             "Edge_1X2_H",
             "Edge_1X2_D",
             "Edge_1X2_A",
@@ -1038,6 +1119,8 @@ def save_predictions(prediction_df):
             "Edge_OU_Under",
             "Edge_BTTS_Yes",
             "Edge_BTTS_No",
+            "Edge_GG",
+            "Edge_NG",
         ])
         empty_csv.to_csv(OUTPUT_CSV, index=False)
         OUTPUT_JSON.write_text(json.dumps([], indent=2), encoding="utf-8")
@@ -1050,6 +1133,8 @@ def save_predictions(prediction_df):
         "B365H",
         "B365D",
         "B365A",
+        "B365GG",
+        "B365NG",
         "BbAv>2.5",
         "BbAv<2.5",
         "BTTSYesOdds",
@@ -1061,6 +1146,8 @@ def save_predictions(prediction_df):
         "Prob_Under25",
         "Prob_BTTS_Yes",
         "Prob_BTTS_No",
+        "Prob_GG",
+        "Prob_NG",
         "Edge_1X2_H",
         "Edge_1X2_D",
         "Edge_1X2_A",
@@ -1068,6 +1155,8 @@ def save_predictions(prediction_df):
         "Edge_OU_Under",
         "Edge_BTTS_Yes",
         "Edge_BTTS_No",
+        "Edge_GG",
+        "Edge_NG",
     ]
     for column in ordered:
         if column not in prediction_df.columns:
@@ -1097,7 +1186,11 @@ def print_fixture_verification(fixtures_df):
         return
     print("\nLIVE EPL FIXTURE VERIFICATION")
     print("-" * 160)
-    preview = fixtures_df[["Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A", "BbAv>2.5", "BbAv<2.5"]].copy()
+    preview_cols = ["Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A"]
+    for col in ["B365GG", "B365NG", "BbAv>2.5", "BbAv<2.5"]:
+        if col in fixtures_df.columns:
+            preview_cols.append(col)
+    preview = fixtures_df[preview_cols].copy()
     preview["Date"] = preview["Date"].dt.strftime("%Y-%m-%d %H:%M")
     print(preview.head(10).to_string(index=False))
 
@@ -1235,7 +1328,7 @@ def main():
 
     print_summary_table("Standard Value bets (1/8 Kelly, capped at 1.5% bankroll)", summarize_value_table(standard_df))
     print_summary_table("High-Odds / Longshot alerts (1/16 Kelly, capped at 0.5% bankroll)", summarize_value_table(longshot_df))
-    print_summary_table("Total Combined Value Bets (1X2 + Over/Under 2.5 + BTTS)", summarize_value_table(value_df))
+    print_summary_table("Total Combined Value Bets (1X2 + Over/Under 2.5 + BTTS + GG/NG)", summarize_value_table(value_df))
 
 
 if __name__ == "__main__":
