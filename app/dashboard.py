@@ -18,82 +18,87 @@ st.set_page_config(page_title="palavoiBetPredictor by Jason", page_icon="⚽", l
 st.markdown(
     """
     <style>
-    /* Hide the top Streamlit header, toolbar, share/edit buttons */
-    header[data-testid="stHeader"] {
-        visibility: hidden;
-        height: 0%;
-    }
-    #MainMenu {visibility: hidden;}
-    footer {visibility: hidden;}
-    .stAppDeployButton {display:none;}
-    div[data-testid="stToolbar"] {display: none;}
+    header[data-testid="stHeader"] { visibility: hidden; height: 0; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
+    .stAppDeployButton { display: none; }
+    div[data-testid="stToolbar"] { display: none; }
 
-    .stApp {
-        background: linear-gradient(180deg, #0b1220 0%, #121a2a 100%);
-        color: #f4f7fb;
+    html, body, [class*="css"], .stApp {
+        font-family: Inter, Roboto, "Segoe UI", sans-serif;
+        background: #0b1220;
+        color: #e5edf9;
     }
     .block-container {
-        padding-top: 1.2rem;
-        padding-bottom: 2rem;
-    }
-    @media (max-width: 768px) {
-        .block-container {
-            padding-left: 0.5rem;
-            padding-right: 0.5rem;
-        }
-        div[data-testid="stExpander"] {
-            border-radius: 14px;
-        }
-    }
-    div[data-testid="stVerticalBlock"] > div {
-        gap: 0.6rem;
-    }
-    [data-testid="stExpander"] {
-        background: rgba(17, 24, 39, 0.92);
-        border: 1px solid rgba(148, 163, 184, 0.35);
-        border-radius: 16px;
-        box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-    }
-    [data-testid="stContainer"] {
-        background: rgba(15, 23, 42, 0.92);
-        border: 1px solid rgba(148, 163, 184, 0.22);
-        border-radius: 16px;
-        padding: 0.8rem 0.9rem;
-        box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+        padding-top: 0.8rem;
+        padding-bottom: 1.5rem;
+        padding-left: 0.8rem;
+        padding-right: 0.8rem;
     }
     .stMetric {
-        background: rgba(148, 163, 184, 0.08);
-        border-radius: 12px;
-        padding: 0.5rem 0.7rem;
+        background: rgba(15, 23, 42, 0.82);
         border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 12px;
+        padding: 0.7rem 0.8rem;
+    }
+    [data-testid="stContainer"], [data-testid="stExpander"] {
+        background: rgba(15, 23, 42, 0.88);
+        border: 1px solid rgba(148, 163, 184, 0.18);
+        border-radius: 16px;
+        box-shadow: none;
+    }
+    div[data-testid="stVerticalBlock"] > div {
+        gap: 0.5rem;
     }
     .badge-super {
+        display: inline-block;
         background: linear-gradient(135deg, #f59e0b, #f97316);
-        color: #fff;
+        color: white;
         border-radius: 999px;
-        padding: 0.3rem 0.7rem;
+        padding: 0.32rem 0.7rem;
+        font-size: 0.78rem;
         font-weight: 700;
+        letter-spacing: 0.02em;
     }
     .badge-good {
-        background: linear-gradient(135deg, #22c55e, #16a34a);
-        color: #fff;
+        display: inline-block;
+        background: linear-gradient(135deg, #22c55e, #15803d);
+        color: white;
         border-radius: 999px;
-        padding: 0.3rem 0.7rem;
+        padding: 0.32rem 0.7rem;
+        font-size: 0.78rem;
         font-weight: 700;
     }
     .badge-neutral {
+        display: inline-block;
         background: linear-gradient(135deg, #facc15, #eab308);
         color: #111827;
         border-radius: 999px;
-        padding: 0.3rem 0.7rem;
+        padding: 0.32rem 0.7rem;
+        font-size: 0.78rem;
         font-weight: 700;
     }
     .badge-bad {
-        background: linear-gradient(135deg, #ef4444, #b91c1c);
-        color: #fff;
+        display: inline-block;
+        background: linear-gradient(135deg, #ef4444, #991b1b);
+        color: white;
         border-radius: 999px;
-        padding: 0.3rem 0.7rem;
+        padding: 0.32rem 0.7rem;
+        font-size: 0.78rem;
         font-weight: 700;
+    }
+    .compact-card {
+        min-height: 220px;
+        padding: 0.8rem;
+    }
+    .compact-card .metric-container {
+        margin-top: 0.4rem;
+    }
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 0.35rem;
+            padding-right: 0.35rem;
+        }
     }
     </style>
     """,
@@ -111,6 +116,15 @@ def parse_date_series(values):
     if fallback_mask.any():
         parsed[fallback_mask] = pd.to_datetime(string_values[fallback_mask], dayfirst=True, errors="coerce")
     return parsed
+
+
+def sort_by_match_date(df: pd.DataFrame, date_col: str = "MatchDate") -> pd.DataFrame:
+    if df.empty or date_col not in df.columns:
+        return df
+    out = df.copy()
+    out[date_col] = pd.to_datetime(out[date_col], errors="coerce")
+    out = out.dropna(subset=[date_col]).sort_values(date_col, ascending=True, kind="mergesort").reset_index(drop=True)
+    return out
 
 
 @st.cache_data(show_spinner=False)
@@ -470,8 +484,10 @@ def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
         ])
 
     value_df = pd.DataFrame(value_rows)
+    if value_df.empty:
+        return value_df
+    value_df["MatchDate"] = pd.to_datetime(value_df["MatchDate"], errors="coerce")
     value_df["ModelProbabilityPct"] = value_df["ModelProbability"] * 100.0
-    # Use a simple dynamic Kelly mapping consistent with the live model logic.
     value_df["KellyStakeEUR"] = value_df.apply(
         lambda row: (
             0.125 * max(0.0, ((float(row["Odds"]) - 1.0) * float(row["ModelProbability"]) - (1.0 - float(row["ModelProbability"]))) / (float(row["Odds"]) - 1.0)) * 1000.0
@@ -481,7 +497,7 @@ def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
         axis=1,
     )
     value_df["KellyStakeEUR"] = value_df["KellyStakeEUR"].clip(lower=0.0, upper=1000.0)
-    return value_df.sort_values(["EdgePct", "ModelProbability"], ascending=[False, False]).reset_index(drop=True)
+    return value_df.sort_values(["MatchDate", "EdgePct"], ascending=[True, False], kind="mergesort").reset_index(drop=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -512,7 +528,8 @@ def build_schedule(prediction_df: pd.DataFrame) -> pd.DataFrame:
     for col in ["Prob_Home", "Prob_Draw", "Prob_Away", "Prob_Over25", "Prob_Under25", "Prob_BTTS_Yes", "Prob_BTTS_No"]:
         if col in schedule.columns:
             schedule[col] = pd.to_numeric(schedule[col], errors="coerce")
-    return schedule.sort_values("MatchDate").reset_index(drop=True)
+    schedule = sort_by_match_date(schedule, "MatchDate")
+    return schedule.reset_index(drop=True)
 
 
 @st.cache_data(show_spinner=False)
@@ -607,7 +624,7 @@ def verdict_for_edge(edge_pct: float) -> tuple[str, str]:
 def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     if prediction_df.empty:
-        return pd.DataFrame(columns=["MatchDate", "Match", "Market", "Pick", "Odds", "ModelProbability_%", "Edge%", "SuggestedStakeEUR", "VerdictBadge", "VerdictCode"])
+        return pd.DataFrame(columns=["MatchDate", "Match", "Market", "Pick", "Odds", "ModelProbability_%", "Edge%", "SuggestedStakeEUR", "VerdictBadge", "VerdictCode"]) 
 
     for _, row in prediction_df.iterrows():
         match_label = f"{row.get('HomeTeam', '')} vs {row.get('AwayTeam', '')}"
@@ -665,7 +682,9 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
     verdict_df = pd.DataFrame(rows)
     if verdict_df.empty:
         return verdict_df
-    verdict_df = verdict_df.sort_values(["Match", "Market", "Edge%"], ascending=[True, True, False]).reset_index(drop=True)
+    verdict_df["MatchDate"] = pd.to_datetime(verdict_df["MatchDate"], errors="coerce")
+    verdict_df = verdict_df.sort_values(["MatchDate", "Match", "Market", "Edge%"], ascending=[True, True, True, False], kind="mergesort").reset_index(drop=True)
+    verdict_df["MatchDate"] = verdict_df["MatchDate"].dt.strftime("%d/%m %H:%M")
     return verdict_df
 
 
@@ -682,7 +701,7 @@ def load_status_info() -> tuple[str, int]:
 def main():
     with st.sidebar:
         st.title("⚽ palavoiBetPredictor")
-        st.caption("by Jason • Premier League value betting dashboard")
+        st.caption("• Premier League value betting dashboard")
 
         if st.button("🔄 Run Live Sync & Retrain"):
             entered_password = st.text_input("Enter admin password", type="password", help="Required to trigger a live sync.")
@@ -745,47 +764,48 @@ def main():
                 filtered_verdicts = filtered_verdicts[filtered_verdicts["VerdictCode"] == "super"].copy()
 
             green = filtered_verdicts[filtered_verdicts["Edge%"] >= 3.0].copy() if not filtered_verdicts.empty else pd.DataFrame()
-            st.subheader("🎯 ΤΑ ΚΑΛΥΤΕΡΑ ΣΤΟΙΧΗΜΑΤΑ ΤΗΣ ΑΓΩΝΙΣΤΙΚΗΣ")
+            st.subheader("ΤΑ ΚΑΛΥΤΕΡΑ ΣΤΟΙΧΗΜΑΤΑ ΤΗΣ ΑΓΩΝΙΣΤΙΚΗΣ")
             if green.empty:
                 st.info("Δεν υπάρχουν καλές προτάσεις αυτή τη στιγμή.")
             else:
-                for _, row in green.sort_values(["Edge%", "ModelProbability_%"], ascending=[False, False]).iterrows():
-                    verdict_key = row["VerdictCode"]
-                    if verdict_key == "super":
-                        badge = "🔥 ΠΟΛΥ ΚΑΛΟ BET"
-                        badge_class = "badge-super"
-                    elif verdict_key == "good":
-                        badge = "🟢 ΚΑΛΟ BET"
-                        badge_class = "badge-good"
-                    elif verdict_key == "neutral":
-                        badge = "🟡 ΟΥΔΕΤΕΡΟ"
-                        badge_class = "badge-neutral"
-                    else:
-                        badge = "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ"
-                        badge_class = "badge-bad"
-                    with st.container(border=True):
-                        st.markdown(f"<div class='{badge_class}'>{badge}</div>", unsafe_allow_html=True)
-                        st.markdown(f"**{row['Match']}**")
-                        if row.get("MatchDate"):
-                            st.caption(f"{row['MatchDate']}")
-                        col_a, col_b, col_c = st.columns([2.2, 1.3, 1.3])
-                        with col_a:
+                card_rows = green.sort_values(["Edge%", "ModelProbability_%"], ascending=[False, False]).to_dict("records")
+                cols = st.columns(4)
+                for idx, row in enumerate(card_rows):
+                    with cols[idx % 4]:
+                        verdict_key = row["VerdictCode"]
+                        if verdict_key == "super":
+                            badge = "🔥 ΠΟΛΥ ΚΑΛΟ BET"
+                            badge_class = "badge-super"
+                        elif verdict_key == "good":
+                            badge = "🟢 ΚΑΛΟ BET"
+                            badge_class = "badge-good"
+                        elif verdict_key == "neutral":
+                            badge = "🟡 ΟΥΔΕΤΕΡΟ"
+                            badge_class = "badge-neutral"
+                        else:
+                            badge = "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ"
+                            badge_class = "badge-bad"
+                        with st.container(border=True):
+                            st.markdown(f"<div class='{badge_class}'>{badge}</div>", unsafe_allow_html=True)
+                            st.markdown(f"**{row['Match']}**")
+                            if row.get("MatchDate"):
+                                st.caption(row["MatchDate"])
                             st.markdown(f"**{row['Market']} • {row['Pick']} @ {row['Odds']}**")
-                        with col_b:
                             st.metric("Model", f"{row['ModelProbability_%']}%")
-                        with col_c:
                             st.metric("Value", f"{row['Edge%']}%")
-                        st.caption(f"Kelly stake: €{float(row['SuggestedStakeEUR']):.2f} • EV: {float(row['Edge%']):.2f}%")
+                            st.caption(f"Stake: €{float(row['SuggestedStakeEUR']):.2f}")
 
             st.markdown("---")
-            st.subheader("📋 Ανάλυση αγώνα και αγορά")
+            st.subheader("Ανάλυση αγώνα και αγορά")
             if filtered_verdicts.empty:
                 st.info("Δεν υπάρχουν διαθέσιμα στοιχεία για ανάλυση αγώνων.")
             else:
                 for match_name, group in filtered_verdicts.groupby("Match", sort=True):
                     match_date = group["MatchDate"].dropna().iloc[0] if not group["MatchDate"].dropna().empty else ""
                     with st.expander(f"{match_name} {f'• {match_date}' if match_date else ''}", expanded=False):
-                        for _, row in group.sort_values(["VerdictCode", "Edge%"], ascending=[True, False]).iterrows():
+                        rows = group.sort_values(["VerdictCode", "Edge%"], ascending=[True, False]).to_dict("records")
+                        cols = st.columns(4)
+                        for idx, row in enumerate(rows):
                             verdict_key = row["VerdictCode"]
                             if verdict_key == "super":
                                 badge = "🔥 ΠΟΛΥ ΚΑΛΟ"
@@ -799,18 +819,14 @@ def main():
                             else:
                                 badge = "🔴 ΑΠΟΦΥΓΗ"
                                 badge_class = "badge-bad"
-                            with st.container(border=True):
-                                st.markdown(f"<div class='{badge_class}'>{badge}</div>", unsafe_allow_html=True)
-                                col1, col2, col3, col4 = st.columns([2.0, 1.2, 1.2, 1.3])
-                                with col1:
+                            with cols[idx % 4]:
+                                with st.container(border=True):
+                                    st.markdown(f"<div class='{badge_class}'>{badge}</div>", unsafe_allow_html=True)
                                     st.markdown(f"**{row['Market']}**")
                                     st.write(f"{row['Pick']} @ {row['Odds']}")
-                                with col2:
                                     st.metric("Model", f"{row['ModelProbability_%']}%")
-                                with col3:
                                     st.metric("EV", f"{row['Edge%']}%")
-                                with col4:
-                                    st.caption(f"€{float(row['SuggestedStakeEUR']):.2f}")
+                                    st.caption(f"Stake: €{float(row['SuggestedStakeEUR']):.2f}")
 
         with st.expander("Upcoming Match Schedule"):
             if schedule_df.empty:
@@ -823,14 +839,14 @@ def main():
                     if col in future_matches.columns:
                         future_matches[col] = pd.to_numeric(future_matches[col], errors="coerce") * 100.0
                 future_matches = future_matches.round(2)
-                st.dataframe(future_matches, use_container_width=True, hide_index=True)
+                st.dataframe(future_matches, hide_index=True)
 
     with tabs[1]:
         st.subheader(f"Premier League Table • {current_season_label}")
         if standings_df.empty:
             st.info("No completed-season standings are available in the historical dataset yet.")
         else:
-            st.dataframe(standings_df, use_container_width=True, hide_index=True)
+            st.dataframe(standings_df, hide_index=True)
 
     with tabs[2]:
         st.subheader(f"Model Season Performance • {current_season_label}")
@@ -858,7 +874,7 @@ def main():
                     title="Realized Win Rate & ROI by Risk Tier",
                     labels={"value": "Metric", "RiskTier": "Risk Tier"},
                 )
-                st.plotly_chart(fig_risk, use_container_width=True)
+                st.plotly_chart(fig_risk)
 
             team_summary = season_eval["team_summary"]
             if not team_summary.empty:
@@ -883,7 +899,7 @@ def main():
                     xaxis_title="%",
                     yaxis_title="Team",
                 )
-                st.plotly_chart(fig_team, use_container_width=True)
+                st.plotly_chart(fig_team)
 
             season_log = season_eval["log"].copy()
             if not season_log.empty:
@@ -894,7 +910,7 @@ def main():
                 season_log["NetProfitEUR"] = season_log["NetProfitEUR"].round(2)
                 season_log = season_log[["Date", "HomeTeam", "AwayTeam", "ActualResult", "SelectedOutcome", "ModelProb_%", "Odds", "RiskTier", "StakeEUR", "BetOutcome", "NetProfitEUR"]].copy()
                 st.subheader("Completed Fixture Bet Log")
-                st.dataframe(season_log, use_container_width=True, hide_index=True)
+                st.dataframe(season_log, hide_index=True)
 
 
 if __name__ == "__main__":

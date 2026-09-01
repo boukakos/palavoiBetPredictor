@@ -1,31 +1,11 @@
-﻿Div,Date,HomeTeam,AwayTeam,B365H,B365D,B365A,BbAv>2.5,BbAv<2.5
-E0,2026-09-12,Arsenal,Chelsea,1.80,3.75,4.33,1.75,2.05
-E0,2026-09-12,Bournemouth,Brighton,2.50,3.50,2.75,1.85,1.95
-E0,2026-09-12,Crystal Palace,Aston Villa,2.80,3.40,2.50,1.90,1.90
-E0,2026-09-12,Fulham,West Ham United,2.40,3.40,2.90,1.85,1.95
-E0,2026-09-12,Liverpool,Everton,1.36,5.25,8.00,1.50,2.50
-E0,2026-09-12,Newcastle United,Wolverhampton Wanderers,1.90,3.60,4.00,1.80,2.00
-E0,2026-09-13,Brentford,Southampton,1.95,3.60,3.80,1.80,2.00
-E0,2026-09-13,Man City,Man United,1.60,4.20,5.25,1.60,2.30
-E0,2026-09-13,Tottenham Hotspur,Nottingham Forest,1.70,3.90,4.75,1.65,2.20
-E0,2026-09-14,Ipswich Town,Hull City,2.10,3.40,3.50,2.00,1.80
-E0,2026-09-19,Aston Villa,Fulham,2.00,3.60,3.60,1.75,2.05
-E0,2026-09-19,Chelsea,Liverpool,2.60,3.50,2.60,1.65,2.20
-E0,2026-09-19,Everton,Brentford,2.30,3.30,3.20,2.05,1.75
-E0,2026-09-19,Southampton,Bournemouth,2.60,3.40,2.70,1.90,1.90
-E0,2026-09-19,West Ham United,Crystal Palace,2.25,3.40,3.20,1.85,1.95
-E0,2026-09-19,Wolverhampton Wanderers,Ipswich Town,1.90,3.50,4.20,1.95,1.85
-E0,2026-09-20,Brighton,Tottenham Hotspur,2.70,3.60,2.45,1.60,2.30
-E0,2026-09-20,Man United,Arsenal,3.10,3.60,2.20,1.75,2.05
-E0,2026-09-20,Nottingham Forest,Man City,6.50,4.50,1.48,1.60,2.30
-E0,2026-09-21,Hull City,Newcastle United,4.50,3.80,1.75,1.85,1.95
-E0,2026-09-26,Arsenal,Aston Villa,1.65,4.00,5.00,1.70,2.10
-E0,2026-09-26,Bournemouth,Everton,2.20,3.40,3.30,1.90,1.90
-E0,2026-09-26,Brentford,Hull City,1.75,3.75,4.50,1.80,2.00
-E0,2026-09-26,Chelsea,Brighton,1.85,3.75,4.00,1.65,2.20
-E0,2026-09-26,Crystal Palace,Wolverhampton Wanderers,2.15,3.30,3.50,2.05,1.75
-E0,2026-09-26,Liverpool,West Ham United,1.30,5.50,9.00,1.45,2.70
-E0,2026-09-27,Fulham,Nottingham Forest,2.10,3.40,3.50,1.95,1.85
-E0,2026-09-27,Man City,Ipswich Town,1.18,7.50,15.00,1.35,3.10
-E0,2026-09-27,Newcastle United,Man United,2.35,3.50,2.90,1.65,2.20
-E0,2026-09-28,Tottenham Hotspur,Southampton,1.55,4.20,5.75,1.60,2.30
+﻿Div,Date,HomeTeam,AwayTeam,B365H,B365D,B365A,B365>2.5,B365<2.5
+E0,2026-09-04,Ipswich Town,Liverpool,5.2,4.60,1.55,1.50,2.60
+E0,2026-09-05,Newcastle United,Bournemouth,2.22,3.60,3.10,1.60,2.35
+E0,2026-09-05,Brentford,Sunderland,1.60,4.05,5.50,5.70,2.00
+E0,2026-09-05,Brighton,Leeds United,1.87,3.60,4.20,1.70,2.15
+E0,2026-09-05,Fulham,Crystal Palace,2.30,3.60,3.10,1.95,1.85
+E0,2026-09-05,Manchester City,Coventry,1.20,7.10,13.00,1.35,3.10
+E0,2026-09-05,Nottingham Forest,Tottenham,3.30,3.60,2.10,1.70,2.15
+E0,2026-09-05,Hull City,Aston Villa,4.20,3.75,1.83,1.80,2.00
+E0,2026-09-06,Everton,Manchester United,3.50,3.60,2.05,1.85,1.95
+E0,2026-09-06,Arsenal,Chelsea,1.70,4.00,4.75,1.65,2.20
