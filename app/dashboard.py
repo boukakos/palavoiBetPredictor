@@ -15,6 +15,91 @@ DEFAULT_BANKROLL_EUR = 1000.0
 
 st.set_page_config(page_title="palavoiBetPredictor by Jason", page_icon="⚽", layout="wide")
 
+st.markdown(
+    """
+    <style>
+    /* Hide the top Streamlit header, toolbar, share/edit buttons */
+    header[data-testid="stHeader"] {
+        visibility: hidden;
+        height: 0%;
+    }
+    #MainMenu {visibility: hidden;}
+    footer {visibility: hidden;}
+    .stAppDeployButton {display:none;}
+    div[data-testid="stToolbar"] {display: none;}
+
+    .stApp {
+        background: linear-gradient(180deg, #0b1220 0%, #121a2a 100%);
+        color: #f4f7fb;
+    }
+    .block-container {
+        padding-top: 1.2rem;
+        padding-bottom: 2rem;
+    }
+    @media (max-width: 768px) {
+        .block-container {
+            padding-left: 0.5rem;
+            padding-right: 0.5rem;
+        }
+        div[data-testid="stExpander"] {
+            border-radius: 14px;
+        }
+    }
+    div[data-testid="stVerticalBlock"] > div {
+        gap: 0.6rem;
+    }
+    [data-testid="stExpander"] {
+        background: rgba(17, 24, 39, 0.92);
+        border: 1px solid rgba(148, 163, 184, 0.35);
+        border-radius: 16px;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+    }
+    [data-testid="stContainer"] {
+        background: rgba(15, 23, 42, 0.92);
+        border: 1px solid rgba(148, 163, 184, 0.22);
+        border-radius: 16px;
+        padding: 0.8rem 0.9rem;
+        box-shadow: 0 6px 18px rgba(0,0,0,0.12);
+    }
+    .stMetric {
+        background: rgba(148, 163, 184, 0.08);
+        border-radius: 12px;
+        padding: 0.5rem 0.7rem;
+        border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    .badge-super {
+        background: linear-gradient(135deg, #f59e0b, #f97316);
+        color: #fff;
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        font-weight: 700;
+    }
+    .badge-good {
+        background: linear-gradient(135deg, #22c55e, #16a34a);
+        color: #fff;
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        font-weight: 700;
+    }
+    .badge-neutral {
+        background: linear-gradient(135deg, #facc15, #eab308);
+        color: #111827;
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        font-weight: 700;
+    }
+    .badge-bad {
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        color: #fff;
+        border-radius: 999px;
+        padding: 0.3rem 0.7rem;
+        font-weight: 700;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 
 def parse_date_series(values):
     values = pd.Series(values)
@@ -494,21 +579,45 @@ def format_risk_badge(value: str) -> str:
     return "⚠️ [HIGH RISK / LONGSHOT]"
 
 
+def bet_verdict(probability: float, odds: float) -> tuple[str, str]:
+    ev_decimal = (probability * odds) - 1.0
+    kelly_fraction = 0.0
+    if odds > 1.0:
+        kelly_fraction = max(0.0, ((odds - 1.0) * probability - (1.0 - probability)) / (odds - 1.0))
+    if ev_decimal >= 0.08 and probability >= 0.50 and kelly_fraction >= 0.03:
+        return "🔥 ΠΟΛΥ ΚΑΛΟ BET", "super"
+    if ev_decimal >= 0.03 and kelly_fraction > 0.0:
+        return "🟢 ΚΑΛΟ BET", "good"
+    if -0.03 <= ev_decimal < 0.03:
+        return "🟡 ΟΥΔΕΤΕΡΟ", "neutral"
+    return "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ", "bad"
+
+
 def verdict_for_edge(edge_pct: float) -> tuple[str, str]:
-    if edge_pct >= 3.5:
-        return "🟢 ΚΑΛΟ ΣΤΟΙΧΗΜΑ (VALUE BET)", "good"
-    if edge_pct > 0.0:
-        return "🟡 ΟΥΔΕΤΕΡΟ / ΜΕΤΡΙΟ", "neutral"
-    return "🔴 ΚΑΚΟ ΣΤΟΙΧΗΜΑ (ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ)", "bad"
+    ev_decimal = edge_pct / 100.0
+    if ev_decimal >= 0.08:
+        return "🔥 ΠΟΛΥ ΚΑΛΟ BET", "super"
+    if ev_decimal >= 0.03:
+        return "🟢 ΚΑΛΟ BET", "good"
+    if -0.03 <= ev_decimal < 0.03:
+        return "🟡 ΟΥΔΕΤΕΡΟ", "neutral"
+    return "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ", "bad"
 
 
 def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     if prediction_df.empty:
-        return pd.DataFrame(columns=["Match", "Market", "Pick", "Odds", "ModelProbability_%", "Edge%", "SuggestedStakeEUR", "VerdictBadge", "VerdictCode"])
+        return pd.DataFrame(columns=["MatchDate", "Match", "Market", "Pick", "Odds", "ModelProbability_%", "Edge%", "SuggestedStakeEUR", "VerdictBadge", "VerdictCode"])
 
     for _, row in prediction_df.iterrows():
         match_label = f"{row.get('HomeTeam', '')} vs {row.get('AwayTeam', '')}"
+        match_date = row.get('MatchDate')
+        match_date_str = ""
+        if pd.notna(match_date):
+            try:
+                match_date_str = pd.to_datetime(match_date).strftime("%d/%m %H:%M")
+            except Exception:
+                match_date_str = str(match_date)
         market_specs = [
             ("1X2", "H", "Prob_Home", "B365H"),
             ("1X2", "D", "Prob_Draw", "B365D"),
@@ -528,9 +637,12 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
             edge_value = (prob_value * odd_value - 1.0) * 100.0
             if prob_value <= 0.0 or odd_value <= 1.0:
                 edge_value = -999.0
-            verdict_label, verdict_code = verdict_for_edge(edge_value)
+            verdict_label, verdict_code = bet_verdict(prob_value, odd_value)
             stake = 0.0
-            if verdict_code == "good":
+            if verdict_code == "super":
+                kelly = ((odd_value - 1.0) * prob_value - (1.0 - prob_value)) / (odd_value - 1.0) if odd_value > 1.0 else 0.0
+                stake = min(max(0.25 * max(0.0, kelly) * DEFAULT_BANKROLL_EUR, 0.0), DEFAULT_BANKROLL_EUR * 0.015)
+            elif verdict_code == "good":
                 kelly = ((odd_value - 1.0) * prob_value - (1.0 - prob_value)) / (odd_value - 1.0) if odd_value > 1.0 else 0.0
                 stake = min(max(0.125 * max(0.0, kelly) * DEFAULT_BANKROLL_EUR, 0.0), DEFAULT_BANKROLL_EUR * 0.015)
             elif verdict_code == "neutral":
@@ -538,6 +650,7 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
             else:
                 stake = 0.0
             rows.append({
+                "MatchDate": match_date_str,
                 "Match": match_label,
                 "Market": market,
                 "Pick": pick,
@@ -626,23 +739,78 @@ def main():
         if prediction_df.empty:
             st.info("No live prediction file was found yet. Run the sync pipeline to populate this section.")
         else:
-            green = market_verdicts[market_verdicts["Edge%"] >= 3.0].copy() if not market_verdicts.empty else pd.DataFrame()
-            st.subheader("Καλα στοιχηματα")
+            top_only = st.checkbox("Show Only Top Picks (🔥)", value=True)
+            filtered_verdicts = market_verdicts.copy()
+            if top_only:
+                filtered_verdicts = filtered_verdicts[filtered_verdicts["VerdictCode"] == "super"].copy()
+
+            green = filtered_verdicts[filtered_verdicts["Edge%"] >= 3.0].copy() if not filtered_verdicts.empty else pd.DataFrame()
+            st.subheader("🎯 ΤΑ ΚΑΛΥΤΕΡΑ ΣΤΟΙΧΗΜΑΤΑ ΤΗΣ ΑΓΩΝΙΣΤΙΚΗΣ")
             if green.empty:
                 st.info("Δεν υπάρχουν καλές προτάσεις αυτή τη στιγμή.")
             else:
-                green_display = green[["Match", "Market", "Pick", "Odds", "ModelProbability_%", "Edge%", "SuggestedStakeEUR", "VerdictBadge"]].copy()
-                green_display.columns = ["Match", "Market", "Pick", "Odds", "ModelProb %", "Edge %", "Suggested Stake (€)", "Verdict"]
-                st.dataframe(green_display, use_container_width=True, hide_index=True)
+                for _, row in green.sort_values(["Edge%", "ModelProbability_%"], ascending=[False, False]).iterrows():
+                    verdict_key = row["VerdictCode"]
+                    if verdict_key == "super":
+                        badge = "🔥 ΠΟΛΥ ΚΑΛΟ BET"
+                        badge_class = "badge-super"
+                    elif verdict_key == "good":
+                        badge = "🟢 ΚΑΛΟ BET"
+                        badge_class = "badge-good"
+                    elif verdict_key == "neutral":
+                        badge = "🟡 ΟΥΔΕΤΕΡΟ"
+                        badge_class = "badge-neutral"
+                    else:
+                        badge = "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ"
+                        badge_class = "badge-bad"
+                    with st.container(border=True):
+                        st.markdown(f"<div class='{badge_class}'>{badge}</div>", unsafe_allow_html=True)
+                        st.markdown(f"**{row['Match']}**")
+                        if row.get("MatchDate"):
+                            st.caption(f"{row['MatchDate']}")
+                        col_a, col_b, col_c = st.columns([2.2, 1.3, 1.3])
+                        with col_a:
+                            st.markdown(f"**{row['Market']} • {row['Pick']} @ {row['Odds']}**")
+                        with col_b:
+                            st.metric("Model", f"{row['ModelProbability_%']}%")
+                        with col_c:
+                            st.metric("Value", f"{row['Edge%']}%")
+                        st.caption(f"Kelly stake: €{float(row['SuggestedStakeEUR']):.2f} • EV: {float(row['Edge%']):.2f}%")
 
             st.markdown("---")
-            st.subheader("📋 Ανάλυση  αγώνα και αγορά")
-            if market_verdicts.empty:
+            st.subheader("📋 Ανάλυση αγώνα και αγορά")
+            if filtered_verdicts.empty:
                 st.info("Δεν υπάρχουν διαθέσιμα στοιχεία για ανάλυση αγώνων.")
             else:
-                breakdown = market_verdicts[["Match", "Market", "Pick", "Odds", "ModelProbability_%", "Edge%", "SuggestedStakeEUR", "VerdictBadge"]].copy()
-                breakdown.columns = ["Match", "Market", "Pick", "Odds", "ModelProb %", "Edge %", "Suggested Stake (€)", "Verdict"]
-                st.dataframe(breakdown, use_container_width=True, hide_index=True)
+                for match_name, group in filtered_verdicts.groupby("Match", sort=True):
+                    match_date = group["MatchDate"].dropna().iloc[0] if not group["MatchDate"].dropna().empty else ""
+                    with st.expander(f"{match_name} {f'• {match_date}' if match_date else ''}", expanded=False):
+                        for _, row in group.sort_values(["VerdictCode", "Edge%"], ascending=[True, False]).iterrows():
+                            verdict_key = row["VerdictCode"]
+                            if verdict_key == "super":
+                                badge = "🔥 ΠΟΛΥ ΚΑΛΟ"
+                                badge_class = "badge-super"
+                            elif verdict_key == "good":
+                                badge = "🟢 ΚΑΛΟ"
+                                badge_class = "badge-good"
+                            elif verdict_key == "neutral":
+                                badge = "🟡 ΟΥΔΕΤΕΡΟ"
+                                badge_class = "badge-neutral"
+                            else:
+                                badge = "🔴 ΑΠΟΦΥΓΗ"
+                                badge_class = "badge-bad"
+                            with st.container(border=True):
+                                st.markdown(f"<div class='{badge_class}'>{badge}</div>", unsafe_allow_html=True)
+                                col1, col2, col3, col4 = st.columns([2.0, 1.2, 1.2, 1.3])
+                                with col1:
+                                    st.markdown(f"**{row['Market']}**")
+                                    st.write(f"{row['Pick']} @ {row['Odds']}")
+                                with col2:
+                                    st.metric("Model", f"{row['ModelProbability_%']}%")
+                                with col3:
+                                    st.metric("EV", f"{row['Edge%']}%")
+                                with col4:
+                                    st.caption(f"€{float(row['SuggestedStakeEUR']):.2f}")
 
         with st.expander("Upcoming Match Schedule"):
             if schedule_df.empty:

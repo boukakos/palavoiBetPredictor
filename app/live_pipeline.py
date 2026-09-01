@@ -660,14 +660,35 @@ def recommended_stake_for_value(probability: float, odds: float, risk_tier: str)
     return min(max(raw_stake, 0.0), cap)
 
 
+def expected_value_decimal(probability: float, odds: float) -> float:
+    if pd.isna(probability) or pd.isna(odds):
+        return 0.0
+    return float(probability * odds - 1.0)
+
+
 def edge_pct(probability: float, odds: float) -> float:
-    return max(0.0, (probability * odds - 1.0) * 100.0)
+    return max(0.0, expected_value_decimal(probability, odds) * 100.0)
 
 
 def classify_risk(probability: float, odds: float):
     if probability >= 0.40 and odds <= 3.40:
         return "Standard Value"
     return "[HIGH RISK / LONGSHOT]"
+
+
+def bet_verdict(probability: float, odds: float, kelly_fraction: float = None) -> tuple[str, str]:
+    ev_decimal = expected_value_decimal(probability, odds)
+    if kelly_fraction is None:
+        kelly_fraction = 0.0
+        if odds > 1.0:
+            kelly_fraction = max(0.0, ((odds - 1.0) * probability - (1.0 - probability)) / (odds - 1.0))
+    if ev_decimal >= 0.08 and probability >= 0.50 and kelly_fraction >= 0.03:
+        return "🔥 ΠΟΛΥ ΚΑΛΟ BET", "super"
+    if ev_decimal >= 0.03 and kelly_fraction > 0.0:
+        return "🟢 ΚΑΛΟ BET", "good"
+    if -0.03 <= ev_decimal < 0.03:
+        return "🟡 ΟΥΔΕΤΕΡΟ", "neutral"
+    return "🔴 ΠΑΓΙΔΑ / ΑΠΟΦΥΓΗ", "bad"
 
 
 def summarize_value_table(value_records):
@@ -761,7 +782,9 @@ def generate_value_bets(prediction_rows):
             if current_edge < MIN_EDGE_PERCENT:
                 continue
             risk_tier = classify_risk(probability, odd)
+            kelly_fraction = max(0.0, ((odd - 1.0) * probability - (1.0 - probability)) / (odd - 1.0)) if odd > 1.0 else 0.0
             stake = recommended_stake_for_value(probability, odd, risk_tier)
+            verdict_label, verdict_code = bet_verdict(probability, odd, kelly_fraction)
             value_records.append(
                 {
                     "MatchDate": row["Date"],
@@ -772,9 +795,13 @@ def generate_value_bets(prediction_rows):
                     "ModelProbability": float(probability),
                     "Odds": float(odd),
                     "EdgePct": float(current_edge),
+                    "EV": float(expected_value_decimal(probability, odd)),
+                    "KellyFraction": float(kelly_fraction),
                     "RiskTier": risk_tier,
                     "StakeRecommendationEUR": float(stake),
                     "RecommendedStakeEUR": float(stake),
+                    "Verdict": verdict_label,
+                    "VerdictCode": verdict_code,
                     "Prob_Home": home_prob,
                     "Prob_Draw": draw_prob,
                     "Prob_Away": away_prob,
@@ -792,7 +819,9 @@ def generate_value_bets(prediction_rows):
             if current_edge < MIN_EDGE_PERCENT:
                 continue
             risk_tier = classify_risk(probability, odd)
+            kelly_fraction = max(0.0, ((odd - 1.0) * probability - (1.0 - probability)) / (odd - 1.0)) if odd > 1.0 else 0.0
             stake = recommended_stake_for_value(probability, odd, risk_tier)
+            verdict_label, verdict_code = bet_verdict(probability, odd, kelly_fraction)
             value_records.append(
                 {
                     "MatchDate": row["Date"],
@@ -803,9 +832,13 @@ def generate_value_bets(prediction_rows):
                     "ModelProbability": float(probability),
                     "Odds": float(odd),
                     "EdgePct": float(current_edge),
+                    "EV": float(expected_value_decimal(probability, odd)),
+                    "KellyFraction": float(kelly_fraction),
                     "RiskTier": risk_tier,
                     "StakeRecommendationEUR": float(stake),
                     "RecommendedStakeEUR": float(stake),
+                    "Verdict": verdict_label,
+                    "VerdictCode": verdict_code,
                     "Prob_Over25": over_prob,
                     "Prob_Under25": under_prob,
                 }
@@ -822,7 +855,9 @@ def generate_value_bets(prediction_rows):
             if current_edge < MIN_EDGE_PERCENT:
                 continue
             risk_tier = classify_risk(probability, odd)
+            kelly_fraction = max(0.0, ((odd - 1.0) * probability - (1.0 - probability)) / (odd - 1.0)) if odd > 1.0 else 0.0
             stake = recommended_stake_for_value(probability, odd, risk_tier)
+            verdict_label, verdict_code = bet_verdict(probability, odd, kelly_fraction)
             value_records.append(
                 {
                     "MatchDate": row["Date"],
@@ -833,9 +868,13 @@ def generate_value_bets(prediction_rows):
                     "ModelProbability": float(probability),
                     "Odds": float(odd),
                     "EdgePct": float(current_edge),
+                    "EV": float(expected_value_decimal(probability, odd)),
+                    "KellyFraction": float(kelly_fraction),
                     "RiskTier": risk_tier,
                     "StakeRecommendationEUR": float(stake),
                     "RecommendedStakeEUR": float(stake),
+                    "Verdict": verdict_label,
+                    "VerdictCode": verdict_code,
                     "Prob_BTTS_Yes": btts_yes_prob,
                     "Prob_BTTS_No": btts_no_prob,
                 }
