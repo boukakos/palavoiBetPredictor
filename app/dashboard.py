@@ -798,7 +798,7 @@ def main():
     ])
 
     with tabs[0]:
-        st.title("palavoiBetPredictor by Jason")
+        st.title("palavoiBetPredictor ")
         live_schedule_count = len(schedule_df) if not schedule_df.empty else 0
         active_value_bets = len(value_df) if not value_df.empty else 0
         best_edge = round(float(value_df["EdgePct"].max()), 2) if not value_df.empty else 0.0
