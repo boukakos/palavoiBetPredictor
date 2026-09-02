@@ -5,6 +5,7 @@ import math
 import os
 import subprocess
 import sys
+from functools import lru_cache
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -24,6 +25,7 @@ from data_tools.download_historical_data import resolve_active_season_candidates
 DATA_DIR = ROOT / "data"
 RAW_HISTORY_FILE = DATA_DIR / "historical_raw" / "premier_league_10_years.csv"
 PROCESSED_FILE = DATA_DIR / "processed" / "model_features_10_years.csv"
+SQUAD_VALUES_FILE = DATA_DIR / "squad_values.csv"
 PREDICTION_DIR = DATA_DIR / "predictions"
 LOCAL_UPCOMING_FIXTURE_CANDIDATES = [
     Path(os.path.join(os.path.dirname(__file__), "..", "data", "upcoming_fixtures.csv")),
@@ -58,6 +60,9 @@ FEATURES_1X2 = [
     "h_cards_avg",
     "a_cards_avg",
     "ref_home_bias",
+    "mv_diff",
+    "mv_ratio",
+    "avg_player_val_diff",
 ]
 
 FEATURES_OU = [
@@ -142,6 +147,68 @@ def safe_odd(value):
     if pd.isna(odd) or odd <= 1.0:
         return np.nan
     return float(odd)
+
+
+def _team_key(team_name):
+    key = "".join(char.lower() for char in str(team_name) if char.isalnum())
+    aliases = {
+        "mancity": "manchestercity",
+        "manunited": "manchesterunited",
+        "tottenham": "tottenhamhotspur",
+    }
+    return aliases.get(key, key)
+
+
+@lru_cache(maxsize=1)
+def load_squad_values() -> dict[str, dict[str, float]]:
+    if not SQUAD_VALUES_FILE.exists():
+        raise FileNotFoundError(f"Squad values file not found: {SQUAD_VALUES_FILE}")
+
+    squad_df = pd.read_csv(SQUAD_VALUES_FILE, low_memory=False)
+    required_columns = {"Team", "MarketValue_M", "AvgPlayerValue_M"}
+    missing_columns = required_columns.difference(squad_df.columns)
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise ValueError(f"Squad values file is missing required columns: {missing}")
+
+    squad_df = squad_df[["Team", "MarketValue_M", "AvgPlayerValue_M"]].copy()
+    squad_df["Team"] = squad_df["Team"].astype(str).str.strip()
+    squad_df["MarketValue_M"] = pd.to_numeric(squad_df["MarketValue_M"], errors="coerce")
+    squad_df["AvgPlayerValue_M"] = pd.to_numeric(squad_df["AvgPlayerValue_M"], errors="coerce")
+    squad_df = squad_df.dropna(subset=["Team", "MarketValue_M", "AvgPlayerValue_M"])
+    squad_df = squad_df[squad_df["Team"].ne("")]
+    if squad_df.empty:
+        raise ValueError(f"Squad values file contains no usable team values: {SQUAD_VALUES_FILE}")
+
+    values = {}
+    for record in squad_df.to_dict(orient="records"):
+        values[_team_key(record["Team"])] = {
+            "market_value": float(record["MarketValue_M"]),
+            "avg_player_value": float(record["AvgPlayerValue_M"]),
+        }
+    return values
+
+
+def squad_value_features(home_team, away_team):
+    squad_values = load_squad_values()
+    default_market_value = float(np.mean([value["market_value"] for value in squad_values.values()]))
+    default_avg_player_value = float(np.mean([value["avg_player_value"] for value in squad_values.values()]))
+
+    home_values = squad_values.get(_team_key(home_team), {
+        "market_value": default_market_value,
+        "avg_player_value": default_avg_player_value,
+    })
+    away_values = squad_values.get(_team_key(away_team), {
+        "market_value": default_market_value,
+        "avg_player_value": default_avg_player_value,
+    })
+    home_mv = home_values["market_value"]
+    away_mv = away_values["market_value"]
+    return {
+        "mv_diff": home_mv - away_mv,
+        "mv_ratio": home_mv / np.maximum(away_mv, 1.0),
+        "avg_player_val_diff": home_values["avg_player_value"] - away_values["avg_player_value"],
+    }
 
 
 def parse_date_series(values):
@@ -418,6 +485,7 @@ def make_fixture_feature_row(raw_history_df, fixture_row):
         if match["Opponent"] == away_team:
             h2h_matches.append(match)
     h2h_home_win_rate = 0.33 if not h2h_matches else sum(1 for match in h2h_matches[-5:] if match["Pts"] == 3) / len(h2h_matches[-5:])
+    squad_features = squad_value_features(home_team, away_team)
 
     b365_h = safe_odd(fixture_row.get("B365H", np.nan))
     b365_d = safe_odd(fixture_row.get("B365D", np.nan))
@@ -474,6 +542,7 @@ def make_fixture_feature_row(raw_history_df, fixture_row):
         "h_cards_avg": h_form["cards_avg"],
         "a_cards_avg": a_form["cards_avg"],
         "ref_home_bias": 0.45,
+        **squad_features,
         "h_goals_scored_avg": h_form["goals_scored_avg"],
         "h_goals_conceded_avg": h_form["goals_conceded_avg"],
         "a_goals_scored_avg": a_form["goals_scored_avg"],
@@ -653,6 +722,12 @@ def prepare_model_data(processed_df):
     merged["Date"] = pd.to_datetime(merged["Date"], errors="coerce")
     merged = merged.sort_values("Date").reset_index(drop=True)
     merged["target_1x2"] = merged["Target_FTR"].map(TARGET_MAP)
+    squad_features = merged.apply(
+        lambda row: squad_value_features(row["HomeTeam"], row["AwayTeam"]),
+        axis=1,
+        result_type="expand",
+    )
+    merged[["mv_diff", "mv_ratio", "avg_player_val_diff"]] = squad_features
     return merged
 
 
