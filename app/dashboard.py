@@ -1,4 +1,3 @@
-import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -757,26 +756,9 @@ def main():
         st.caption("• Premier League value betting dashboard")
 
         if st.sidebar.button("Run Live Sync & Retrain"):
-            with st.spinner("Retraining model and recalculating live value bets..."):
-                try:
-                    result = subprocess.run(
-                        [sys.executable, str(ROOT / "app" / "live_pipeline.py"), "--sync"],
-                        cwd=str(ROOT),
-                        capture_output=True,
-                        text=True,
-                        check=False,
-                    )
-                except OSError as exc:
-                    st.error(f"Failed to run live sync: {exc}")
-                else:
-                    if result.returncode != 0:
-                        st.error(f"Sync failed with exit code {result.returncode}.")
-                        with st.expander("Sync output"):
-                            st.code(result.stdout + result.stderr)
-                    else:
-                        st.cache_data.clear()
-                        st.toast("Sync & Retrain completed successfully!", icon="✅")
-                        st.rerun()
+            st.cache_data.clear()
+            st.toast("Dashboard reloaded with latest predictions!", icon="🔄")
+            st.rerun()
 
         last_update, fixtures_loaded = load_status_info()
         st.markdown("---")
