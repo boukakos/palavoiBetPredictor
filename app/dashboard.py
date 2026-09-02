@@ -756,24 +756,27 @@ def main():
         st.title("⚽ palavoiBetPredictor ")
         st.caption("• Premier League value betting dashboard")
 
-        if st.button("🔄 Run Live Sync & Retrain"):
-            entered_password = st.text_input("Enter admin password", type="password", help="Required to trigger a live sync.")
-            if not entered_password:
-                st.warning("Password required to run the live sync.")
-            elif entered_password != "6666":
-                st.error("Incorrect password.")
-            else:
+        if st.sidebar.button("Run Live Sync & Retrain"):
+            with st.spinner("Retraining model and recalculating live value bets..."):
                 try:
-                    result = subprocess.run([sys.executable, str(ROOT / "app" / "live_pipeline.py"), "--sync"], cwd=str(ROOT), capture_output=True, text=True)
-                    if result.returncode == 0:
-                        st.success("Live sync completed successfully.")
-                    else:
-                        st.warning(f"Sync finished with exit code {result.returncode}.")
+                    result = subprocess.run(
+                        [sys.executable, str(ROOT / "app" / "live_pipeline.py"), "--sync"],
+                        cwd=str(ROOT),
+                        capture_output=True,
+                        text=True,
+                        check=False,
+                    )
+                except OSError as exc:
+                    st.error(f"Failed to run live sync: {exc}")
+                else:
+                    if result.returncode != 0:
+                        st.error(f"Sync failed with exit code {result.returncode}.")
                         with st.expander("Sync output"):
                             st.code(result.stdout + result.stderr)
-                except Exception as exc:
-                    st.error(f"Failed to run live sync: {exc}")
-                st.rerun()
+                    else:
+                        st.cache_data.clear()
+                        st.toast("Sync & Retrain completed successfully!", icon="✅")
+                        st.rerun()
 
         last_update, fixtures_loaded = load_status_info()
         st.markdown("---")
