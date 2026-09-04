@@ -1,13 +1,10 @@
 import argparse
-import io
 import json
 import math
-import os
 import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
-from urllib.request import Request, urlopen
 
 import numpy as np
 import pandas as pd
@@ -27,12 +24,17 @@ RAW_HISTORY_FILE = DATA_DIR / "historical_raw" / "premier_league_10_years.csv"
 PROCESSED_FILE = DATA_DIR / "processed" / "model_features_10_years.csv"
 SQUAD_VALUES_FILE = DATA_DIR / "squad_values.csv"
 PREDICTION_DIR = DATA_DIR / "predictions"
-LOCAL_UPCOMING_FIXTURE_CANDIDATES = [
-    Path(os.path.join(os.path.dirname(__file__), "..", "data", "upcoming_fixtures.csv")),
-    Path("data/upcoming_fixtures.csv"),
-    DATA_DIR / "upcoming_fixtures.csv",
-]
-UPCOMING_FIXTURES_FILE = next((path for path in LOCAL_UPCOMING_FIXTURE_CANDIDATES if path.exists()), LOCAL_UPCOMING_FIXTURE_CANDIDATES[0])
+UPCOMING_FIXTURE_FILENAME = "upcoming_fixtures.csv"
+REQUIRED_FIXTURE_COLUMNS = {
+    "HomeTeam",
+    "AwayTeam",
+    "B365H",
+    "B365D",
+    "B365A",
+    "B365>2.5",
+    "B365<2.5",
+    "Date",
+}
 OUTPUT_CSV = PREDICTION_DIR / "live_upcoming_predictions.csv"
 OUTPUT_JSON = PREDICTION_DIR / "live_upcoming_predictions.json"
 
@@ -110,27 +112,6 @@ LONGSHOT_KELLY_FRACTION = 0.0625
 LONGSHOT_KELLY_CAP = INITIAL_BANKROLL * 0.005
 MIN_EDGE_PERCENT = 4.0
 SEASON_CANDIDATES = resolve_active_season_candidates()
-CURRENT_EPL_CLUBS = [
-    "Arsenal",
-    "Aston Villa",
-    "Bournemouth",
-    "Brentford",
-    "Brighton",
-    "Chelsea",
-    "Crystal Palace",
-    "Everton",
-    "Fulham",
-    "Ipswich Town",
-    "Liverpool",
-    "Manchester City",
-    "Manchester United",
-    "Newcastle United",
-    "Nottingham Forest",
-    "Southampton",
-    "Tottenham Hotspur",
-    "West Ham United",
-    "Wolverhampton Wanderers",
-]
 
 
 def safe_float(value):
@@ -574,147 +555,40 @@ def build_fixture_feature_frame(raw_history_df, upcoming_fixtures_df):
     return feature_frame
 
 
-def fetch_football_data_uk_fixtures():
-    season_candidates = resolve_active_season_candidates()
-    candidates = [
-        "https://www.football-data.co.uk/fixtures.csv",
-        "https://www.football-data.co.uk/new/E0.csv",
-    ]
-    for season in season_candidates[:4]:
-        candidates.append(f"https://www.football-data.co.uk/mmz4281/{season}/E0.csv")
-    candidates.extend([
-        "https://www.football-data.co.uk/mmz4281/2425/E0.csv",
-        "https://www.football-data.co.uk/mmz4281/2324/E0.csv",
-    ])
-
-    for url in candidates:
-        try:
-            request = Request(url, headers={"User-Agent": "Mozilla/5.0"})
-            with urlopen(request, timeout=20) as response:
-                payload = response.read()
-            if not payload:
-                continue
-            df = pd.read_csv(io.BytesIO(payload), low_memory=False)
-            if df.empty:
-                continue
-            normalized = normalize_fixture_columns(df)
-            filtered = filter_epl_upcoming_fixtures(normalized)
-            if not filtered.empty:
-                return filtered
-        except Exception:
-            continue
-    return pd.DataFrame()
-
-
-def normalize_fixture_columns(df: pd.DataFrame) -> pd.DataFrame:
-    rename_map = {
-        "Home": "HomeTeam",
-        "Away": "AwayTeam",
-        "HomeTeam": "HomeTeam",
-        "AwayTeam": "AwayTeam",
-        "Date": "Date",
-        "MatchDate": "Date",
-        "FixtureDate": "Date",
-        "MatchDateTime": "Date",
-        "Match_Date": "Date",
-        "DateTime": "Date",
-        "Time": "Time",
-        "MatchTime": "Time",
-        "Div": "Div",
-        "League": "Div",
-        "B365H": "B365H",
-        "B365D": "B365D",
-        "B365A": "B365A",
-        "B365GG": "B365GG",
-        "B365NG": "B365NG",
-        "BbAv>2.5": "BbAv>2.5",
-        "BbAv<2.5": "BbAv<2.5",
-        "BbAH": "BbAH",
-        "BTTSYesOdds": "BTTSYesOdds",
-        "BTTSNoOdds": "BTTSNoOdds",
-        "BTTSYes": "BTTSYesOdds",
-        "BttsYes": "BTTSYesOdds",
-        "BTTSNo": "BTTSNoOdds",
-        "BttsNo": "BTTSNoOdds",
-    }
-
-    columns = {}
-    for col in df.columns:
-        cleaned = str(col).strip()
-        normalized = cleaned.replace(" ", "").replace("-", "").replace("_", "")
-        if normalized in rename_map:
-            columns[col] = rename_map[normalized]
-    output = df.rename(columns=columns).copy()
-
-    if "Date" in output.columns:
-        output["Date"] = parse_date_series(output["Date"])
-    if "Time" in output.columns and "Date" in output.columns:
-        date_part = output["Date"].dt.strftime("%Y-%m-%d") if pd.api.types.is_datetime64_any_dtype(output["Date"]) else output["Date"].astype(str)
-        combined = date_part.astype(str).str.replace("NaT", "", regex=False) + " " + output["Time"].astype(str).str.strip()
-        output["Date"] = pd.to_datetime(combined, format="mixed", errors="coerce")
-        output = output.drop(columns=["Time"])
-
-    for col in ["HomeTeam", "AwayTeam"]:
-        if col in output.columns:
-            output[col] = output[col].astype(str).str.strip()
-    if "Div" in output.columns:
-        output["Div"] = output["Div"].astype(str).str.strip().str.upper()
-
-    for col_name, default_value in {
-        "BTTSYesOdds": 2.05,
-        "BTTSNoOdds": 1.70,
-    }.items():
-        if col_name not in output.columns:
-            output[col_name] = default_value
-    return output
-
-
-def filter_epl_upcoming_fixtures(df: pd.DataFrame) -> pd.DataFrame:
-    if df is None or df.empty:
-        return pd.DataFrame()
-    output = df.copy()
-    if "Div" in output.columns:
-        output = output[output["Div"].astype(str).str.strip().str.upper() == "E0"].copy()
-    else:
-        return pd.DataFrame()
-    if output.empty:
-        return output
-    if "Date" in output.columns:
-        output["Date"] = parse_date_series(output["Date"])
-    output = output.dropna(subset=["Date", "HomeTeam", "AwayTeam"]).copy()
-    if output.empty:
-        return output
-    today_start = pd.Timestamp.now().normalize()
-    output = output[output["Date"] >= today_start].copy()
-    output = output.sort_values("Date").reset_index(drop=True)
-    return output
-
-
-def generate_mock_upcoming_fixtures(team_names=None, matchday_offset_days=3):
-    return pd.DataFrame(columns=["Div", "Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A", "BbAv>2.5", "BbAv<2.5", "B365GG", "B365NG", "BTTSYesOdds", "BTTSNoOdds"])
-
-
 def load_upcoming_fixtures():
-    for candidate in LOCAL_UPCOMING_FIXTURE_CANDIDATES:
-        if not candidate.exists():
-            continue
-        try:
-            tmp = pd.read_csv(candidate, low_memory=False)
-        except Exception:
-            continue
-        if tmp.empty:
-            continue
-        normalized = normalize_fixture_columns(tmp)
-        filtered = filter_epl_upcoming_fixtures(normalized)
-        if not filtered.empty:
-            print(f"Loaded {len(filtered)} fixtures from local CSV: {candidate.name}")
-            return filtered
+    candidates = [
+        DATA_DIR / UPCOMING_FIXTURE_FILENAME,
+        Path.cwd() / "data" / UPCOMING_FIXTURE_FILENAME,
+        Path.cwd() / UPCOMING_FIXTURE_FILENAME,
+    ]
+    fixture_file = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if fixture_file is None:
+        searched = ", ".join(str(candidate) for candidate in candidates)
+        raise FileNotFoundError(
+            "Upcoming fixtures file not found. Run fetch_odds.py first to create "
+            f"{UPCOMING_FIXTURE_FILENAME}. Searched: {searched}"
+        )
 
-    fetched = fetch_football_data_uk_fixtures()
-    if not fetched.empty:
-        return fetched
+    fixtures = pd.read_csv(fixture_file, low_memory=False)
+    missing_columns = REQUIRED_FIXTURE_COLUMNS.difference(fixtures.columns)
+    if missing_columns:
+        missing = ", ".join(sorted(missing_columns))
+        raise ValueError(
+            f"Upcoming fixtures file {fixture_file} is missing required columns: {missing}"
+        )
 
-    return pd.DataFrame()
+    fixtures = fixtures.copy()
+    fixtures["Date"] = parse_date_series(fixtures["Date"])
+    fixtures["HomeTeam"] = fixtures["HomeTeam"].fillna("").astype(str).str.strip()
+    fixtures["AwayTeam"] = fixtures["AwayTeam"].fillna("").astype(str).str.strip()
+    fixtures = fixtures.dropna(subset=["Date"])
+    fixtures = fixtures[
+        fixtures["HomeTeam"].ne("") & fixtures["AwayTeam"].ne("")
+    ].copy()
+    fixtures = fixtures[fixtures["Date"] >= pd.Timestamp.now().normalize()]
+    fixtures = fixtures.sort_values("Date").reset_index(drop=True)
+    print(f"Loaded {len(fixtures)} fixtures from local CSV: {fixture_file}")
+    return fixtures
 
 
 def prepare_model_data(processed_df):
@@ -919,8 +793,8 @@ def generate_value_bets(prediction_rows):
 
         over_prob = float(row["Prob_Over25"])
         under_prob = 1.0 - over_prob
-        over_odd = safe_odd(row.get("BbAv>2.5", np.nan))
-        under_odd = safe_odd(row.get("BbAv<2.5", np.nan))
+        over_odd = safe_odd(row.get("B365>2.5", np.nan))
+        under_odd = safe_odd(row.get("B365<2.5", np.nan))
         for outcome, probability, odd in [("Over", over_prob, over_odd), ("Under", under_prob, under_odd)]:
             if pd.isna(odd):
                 continue
@@ -1117,8 +991,8 @@ def score_upcoming_fixtures(raw_history_df, fixtures_df, models):
             "B365A": safe_odd(row.get("B365A", np.nan)),
             "B365GG": safe_odd(row.get("B365GG", np.nan)),
             "B365NG": safe_odd(row.get("B365NG", np.nan)),
-            "BbAv>2.5": safe_odd(row.get("BbAv>2.5", np.nan)),
-            "BbAv<2.5": safe_odd(row.get("BbAv<2.5", np.nan)),
+            "B365>2.5": safe_odd(row.get("B365>2.5", np.nan)),
+            "B365<2.5": safe_odd(row.get("B365<2.5", np.nan)),
             "BTTSYesOdds": safe_odd(row.get("BTTSYesOdds", np.nan)),
             "BTTSNoOdds": safe_odd(row.get("BTTSNoOdds", np.nan)),
         }
@@ -1143,8 +1017,8 @@ def score_upcoming_fixtures(raw_history_df, fixtures_df, models):
             ("H", "Prob_Home", "B365H", "Edge_1X2_H"),
             ("D", "Prob_Draw", "B365D", "Edge_1X2_D"),
             ("A", "Prob_Away", "B365A", "Edge_1X2_A"),
-            ("Over", "Prob_Over25", "BbAv>2.5", "Edge_OU_Over"),
-            ("Under", "Prob_Under25", "BbAv<2.5", "Edge_OU_Under"),
+            ("Over", "Prob_Over25", "B365>2.5", "Edge_OU_Over"),
+            ("Under", "Prob_Under25", "B365<2.5", "Edge_OU_Under"),
             ("Yes", "Prob_BTTS_Yes", "BTTSYesOdds", "Edge_BTTS_Yes"),
             ("No", "Prob_BTTS_No", "BTTSNoOdds", "Edge_BTTS_No"),
             ("GG", "Prob_GG", "B365GG", "Edge_GG"),
@@ -1174,8 +1048,8 @@ def save_predictions(prediction_df):
             "B365A",
             "B365GG",
             "B365NG",
-            "BbAv>2.5",
-            "BbAv<2.5",
+            "B365>2.5",
+            "B365<2.5",
             "BTTSYesOdds",
             "BTTSNoOdds",
             "Prob_Home",
@@ -1210,8 +1084,8 @@ def save_predictions(prediction_df):
         "B365A",
         "B365GG",
         "B365NG",
-        "BbAv>2.5",
-        "BbAv<2.5",
+        "B365>2.5",
+        "B365<2.5",
         "BTTSYesOdds",
         "BTTSNoOdds",
         "Prob_Home",
@@ -1262,7 +1136,7 @@ def print_fixture_verification(fixtures_df):
     print("\nLIVE EPL FIXTURE VERIFICATION")
     print("-" * 160)
     preview_cols = ["Date", "HomeTeam", "AwayTeam", "B365H", "B365D", "B365A"]
-    for col in ["B365GG", "B365NG", "BbAv>2.5", "BbAv<2.5"]:
+    for col in ["B365GG", "B365NG", "B365>2.5", "B365<2.5"]:
         if col in fixtures_df.columns:
             preview_cols.append(col)
     preview = fixtures_df[preview_cols].copy()
@@ -1363,14 +1237,14 @@ def main():
 
     fixtures_df = load_upcoming_fixtures()
     if fixtures_df.empty:
-        print("No live EPL fixtures are currently published. Checked local schedule and football-data.co.uk feed. No stale mock fixtures are being injected.")
+        print("No upcoming fixtures are present in the local CSV.")
         save_predictions(pd.DataFrame())
         return
 
     fixtures_df = fixtures_df.dropna(subset=["Date", "HomeTeam", "AwayTeam"]).copy()
     fixtures_df = fixtures_df[fixtures_df["Date"] >= pd.Timestamp.now().normalize()].copy()
     if fixtures_df.empty:
-        print("No live EPL fixtures are currently published for the upcoming schedule. Please refresh when fixtures are released by football-data.co.uk.")
+        print("No upcoming fixtures remain in the local CSV after date filtering.")
         save_predictions(pd.DataFrame())
         return
 

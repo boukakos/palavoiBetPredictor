@@ -142,6 +142,44 @@ def sort_by_match_date(df: pd.DataFrame, date_col: str = "MatchDate") -> pd.Data
     return out
 
 
+def safe_numeric(value):
+    converted = pd.to_numeric(value, errors="coerce")
+    return float(converted) if pd.notna(converted) else None
+
+
+def first_valid_numeric(row, columns):
+    for column in columns:
+        value = safe_numeric(row.get(column))
+        if value is not None:
+            return value
+    return None
+
+
+def odds_for_market(row, market, outcome):
+    if market == "O/U 2.5":
+        columns = {
+            "Over": ["B365>2.5", "BbAv>2.5"],
+            "Under": ["B365<2.5", "BbAv<2.5"],
+        }
+    elif market == "BTTS":
+        columns = {
+            "Yes": ["GG_odds", "BTTSYesOdds"],
+            "No": ["NG_odds", "BTTSNoOdds"],
+        }
+    elif market == "GG/NG":
+        columns = {
+            "GG": ["GG_odds", "B365GG", "BTTSYesOdds"],
+            "NG": ["NG_odds", "B365NG", "BTTSNoOdds"],
+        }
+    else:
+        columns = {
+            "H": ["B365H"],
+            "D": ["B365D"],
+            "A": ["B365A"],
+        }
+    return first_valid_numeric(row, columns.get(outcome, []))
+
+
 @st.cache_data(show_spinner=False, ttl=60)
 def load_raw_history() -> pd.DataFrame:
     if not RAW_HISTORY_PATH.exists():
@@ -416,98 +454,102 @@ def build_value_bets(prediction_df: pd.DataFrame) -> pd.DataFrame:
                     ("D", "Prob_Draw", "B365D"),
                     ("A", "Prob_Away", "B365A"),
                 ]:
-                    if pd.isna(row.get(prob_key)):
+                    probability = safe_numeric(row.get(prob_key))
+                    if probability is None:
                         continue
-                    odds = row.get(odds_key)
-                    if pd.isna(odds):
+                    odds = odds_for_market(row, "1X2", label)
+                    if odds is None or odds <= 1.0:
                         continue
-                    edge = max(0.0, (float(row[prob_key]) * float(odds) - 1.0) * 100.0)
+                    edge = max(0.0, (probability * odds - 1.0) * 100.0)
                     if edge < 3.0:
                         continue
-                    risk_tier = "Standard Value" if float(row[prob_key]) >= 0.40 and float(odds) <= 3.40 else "[HIGH RISK / LONGSHOT]"
+                    risk_tier = "Standard Value" if probability >= 0.40 and odds <= 3.40 else "[HIGH RISK / LONGSHOT]"
                     value_rows.append({
                         "MatchDate": row.get("MatchDate"),
                         "HomeTeam": row.get("HomeTeam"),
                         "AwayTeam": row.get("AwayTeam"),
                         "Market": "1X2",
                         "Outcome": label,
-                        "ModelProbability": float(row[prob_key]),
-                        "Odds": float(odds),
+                        "ModelProbability": probability,
+                        "Odds": odds,
                         "EdgePct": float(edge),
                         "RiskTier": risk_tier,
                     })
             elif market == "O/U 2.5":
-                for label, prob_key, odds_key in [
-                    ("Over", "Prob_Over25", "BbAv>2.5"),
-                    ("Under", "Prob_Under25", "BbAv<2.5"),
+                for label, prob_key in [
+                    ("Over", "Prob_Over25"),
+                    ("Under", "Prob_Under25"),
                 ]:
-                    if pd.isna(row.get(prob_key)):
+                    probability = safe_numeric(row.get(prob_key))
+                    if probability is None:
                         continue
-                    odds = row.get(odds_key)
-                    if pd.isna(odds):
+                    odds = odds_for_market(row, "O/U 2.5", label)
+                    if odds is None or odds <= 1.0:
                         continue
-                    edge = max(0.0, (float(row[prob_key]) * float(odds) - 1.0) * 100.0)
+                    edge = max(0.0, (probability * odds - 1.0) * 100.0)
                     if edge < 3.0:
                         continue
-                    risk_tier = "Standard Value" if float(row[prob_key]) >= 0.40 and float(odds) <= 3.40 else "[HIGH RISK / LONGSHOT]"
+                    risk_tier = "Standard Value" if probability >= 0.40 and odds <= 3.40 else "[HIGH RISK / LONGSHOT]"
                     value_rows.append({
                         "MatchDate": row.get("MatchDate"),
                         "HomeTeam": row.get("HomeTeam"),
                         "AwayTeam": row.get("AwayTeam"),
                         "Market": "O/U 2.5",
                         "Outcome": label,
-                        "ModelProbability": float(row[prob_key]),
-                        "Odds": float(odds),
+                        "ModelProbability": probability,
+                        "Odds": odds,
                         "EdgePct": float(edge),
                         "RiskTier": risk_tier,
                     })
             elif market == "BTTS":
-                for label, prob_key, odds_key in [
-                    ("Yes", "Prob_BTTS_Yes", "BTTSYesOdds"),
-                    ("No", "Prob_BTTS_No", "BTTSNoOdds"),
+                for label, prob_key in [
+                    ("Yes", "Prob_BTTS_Yes"),
+                    ("No", "Prob_BTTS_No"),
                 ]:
-                    if pd.isna(row.get(prob_key)):
+                    probability = safe_numeric(row.get(prob_key))
+                    if probability is None:
                         continue
-                    odds = row.get(odds_key)
-                    if pd.isna(odds):
+                    odds = odds_for_market(row, "BTTS", label)
+                    if odds is None or odds <= 1.0:
                         continue
-                    edge = max(0.0, (float(row[prob_key]) * float(odds) - 1.0) * 100.0)
+                    edge = max(0.0, (probability * odds - 1.0) * 100.0)
                     if edge < 3.0:
                         continue
-                    risk_tier = "Standard Value" if float(row[prob_key]) >= 0.40 and float(odds) <= 3.40 else "[HIGH RISK / LONGSHOT]"
+                    risk_tier = "Standard Value" if probability >= 0.40 and odds <= 3.40 else "[HIGH RISK / LONGSHOT]"
                     value_rows.append({
                         "MatchDate": row.get("MatchDate"),
                         "HomeTeam": row.get("HomeTeam"),
                         "AwayTeam": row.get("AwayTeam"),
                         "Market": "BTTS",
                         "Outcome": label,
-                        "ModelProbability": float(row[prob_key]),
-                        "Odds": float(odds),
+                        "ModelProbability": probability,
+                        "Odds": odds,
                         "EdgePct": float(edge),
                         "RiskTier": risk_tier,
                     })
             elif market == "GG/NG":
-                for label, prob_key, odds_key in [
-                    ("GG", "Prob_GG", "B365GG"),
-                    ("NG", "Prob_NG", "B365NG"),
+                for label, prob_key in [
+                    ("GG", "Prob_GG"),
+                    ("NG", "Prob_NG"),
                 ]:
-                    if pd.isna(row.get(prob_key)):
+                    probability = safe_numeric(row.get(prob_key))
+                    if probability is None:
                         continue
-                    odds = row.get(odds_key)
-                    if pd.isna(odds):
+                    odds = odds_for_market(row, "GG/NG", label)
+                    if odds is None or odds <= 1.0:
                         continue
-                    edge = max(0.0, (float(row[prob_key]) * float(odds) - 1.0) * 100.0)
+                    edge = max(0.0, (probability * odds - 1.0) * 100.0)
                     if edge < 3.0:
                         continue
-                    risk_tier = "Standard Value" if float(row[prob_key]) >= 0.40 and float(odds) <= 3.40 else "[HIGH RISK / LONGSHOT]"
+                    risk_tier = "Standard Value" if probability >= 0.40 and odds <= 3.40 else "[HIGH RISK / LONGSHOT]"
                     value_rows.append({
                         "MatchDate": row.get("MatchDate"),
                         "HomeTeam": row.get("HomeTeam"),
                         "AwayTeam": row.get("AwayTeam"),
                         "Market": "GG/NG",
                         "Outcome": label,
-                        "ModelProbability": float(row[prob_key]),
-                        "Odds": float(odds),
+                        "ModelProbability": probability,
+                        "Odds": odds,
                         "EdgePct": float(edge),
                         "RiskTier": risk_tier,
                     })
@@ -686,20 +728,34 @@ def build_market_verdicts(prediction_df: pd.DataFrame) -> pd.DataFrame:
             ("1X2", "H", "Prob_Home", "B365H"),
             ("1X2", "D", "Prob_Draw", "B365D"),
             ("1X2", "A", "Prob_Away", "B365A"),
-            ("Over/Under 2.5", "Over", "Prob_Over25", "BbAv>2.5"),
-            ("Over/Under 2.5", "Under", "Prob_Under25", "BbAv<2.5"),
-            ("BTTS", "Yes", "Prob_BTTS_Yes", "BTTSYesOdds"),
-            ("BTTS", "No", "Prob_BTTS_No", "BTTSNoOdds"),
+            ("Over/Under 2.5", "Over", "Prob_Over25", None),
+            ("Over/Under 2.5", "Under", "Prob_Under25", None),
+            ("BTTS", "Yes", "Prob_BTTS_Yes", None),
+            ("BTTS", "No", "Prob_BTTS_No", None),
             ("GG/NG", "GG", "Prob_GG", "B365GG"),
             ("GG/NG", "NG", "Prob_NG", "B365NG"),
         ]
         for market, pick, prob_key, odds_key in market_specs:
-            probability = row.get(prob_key)
-            odds = row.get(odds_key)
-            if pd.isna(probability) or pd.isna(odds):
+            probability = safe_numeric(row.get(prob_key))
+            odds = odds_for_market(row, market.replace("Over/Under 2.5", "O/U 2.5"), pick)
+            if probability is None:
                 continue
-            prob_value = float(probability)
-            odd_value = float(odds)
+            if odds is None or odds <= 1.0:
+                rows.append({
+                    "MatchDate": match_date_str,
+                    "Match": match_label,
+                    "Market": market,
+                    "Pick": pick,
+                    "Odds": None,
+                    "ModelProbability_%": round(probability * 100.0, 2),
+                    "Edge%": float("nan"),
+                    "SuggestedStakeEUR": 0.0,
+                    "VerdictBadge": "ℹ️ ΠΡΟΒΟΛΗ",
+                    "VerdictCode": "neutral",
+                })
+                continue
+            prob_value = probability
+            odd_value = odds
             edge_value = (prob_value * odd_value - 1.0) * 100.0
             if prob_value <= 0.0 or odd_value <= 1.0:
                 edge_value = -999.0
@@ -800,6 +856,9 @@ def main():
             filtered_verdicts = market_verdicts.copy()
             if top_only:
                 filtered_verdicts = filtered_verdicts[filtered_verdicts["VerdictCode"] == "super"].copy()
+                if filtered_verdicts.empty:
+                    active_verdicts = market_verdicts[market_verdicts["Edge%"] >= 3.0].copy()
+                    filtered_verdicts = active_verdicts if not active_verdicts.empty else market_verdicts.copy()
 
             green = filtered_verdicts[filtered_verdicts["Edge%"] >= 3.0].copy() if not filtered_verdicts.empty else pd.DataFrame()
             st.subheader("ΤΑ ΚΑΛΥΤΕΡΑ ΣΤΟΙΧΗΜΑΤΑ ΤΗΣ ΑΓΩΝΙΣΤΙΚΗΣ")
@@ -831,14 +890,16 @@ def main():
                             st.markdown(f"**{row['Market']} • {row['Pick']} @ {row['Odds']}**")
                             st.metric("Model", f"{row['ModelProbability_%']}%")
                             st.metric("Value", f"{row['Edge%']}%")
-                            st.caption(f"Stake: €{float(row['SuggestedStakeEUR']):.2f}")
+                            stake = safe_numeric(row.get("SuggestedStakeEUR")) or 0.0
+                            st.caption(f"Stake: €{stake:.2f}")
 
             st.markdown("---")
             st.subheader("Ανάλυση αγώνα και αγορά")
-            if filtered_verdicts.empty:
+            analysis_verdicts = market_verdicts.copy()
+            if analysis_verdicts.empty:
                 st.info("Δεν υπάρχουν διαθέσιμα στοιχεία για ανάλυση αγώνων.")
             else:
-                for match_name, group in filtered_verdicts.groupby("Match", sort=True):
+                for match_name, group in analysis_verdicts.groupby("Match", sort=True):
                     match_date = group["MatchDate"].dropna().iloc[0] if not group["MatchDate"].dropna().empty else ""
                     with st.expander(f"{match_name} {f'• {match_date}' if match_date else ''}", expanded=False):
                         rows = group.sort_values(["VerdictCode", "Edge%"], ascending=[True, False]).to_dict("records")
@@ -864,7 +925,8 @@ def main():
                                     st.write(f"{row['Pick']} @ {row['Odds']}")
                                     st.metric("Model", f"{row['ModelProbability_%']}%")
                                     st.metric("EV", f"{row['Edge%']}%")
-                                    st.caption(f"Stake: €{float(row['SuggestedStakeEUR']):.2f}")
+                                    stake = safe_numeric(row.get("SuggestedStakeEUR")) or 0.0
+                                    st.caption(f"Stake: €{stake:.2f}")
 
         with st.expander("Upcoming Match Schedule"):
             if schedule_df.empty:
