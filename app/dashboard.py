@@ -3,7 +3,6 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
@@ -422,6 +421,56 @@ def evaluate_completed_season(raw_df: pd.DataFrame) -> dict:
         "team_summary": team_summary,
         "log": season_log[["Date", "HomeTeam", "AwayTeam", "ActualResult", "SelectedOutcome", "ModelProb_%", "Odds", "RiskTier", "StakeEUR", "BetOutcome", "NetProfitEUR"]].sort_values("Date").reset_index(drop=True),
     }
+
+
+def build_gameweek_pnl(settled_df: pd.DataFrame, default_stake: float = 10.0) -> pd.DataFrame:
+    required_columns = {"Date", "Odds", "BetOutcome"}
+    if settled_df.empty or not required_columns.issubset(settled_df.columns):
+        return pd.DataFrame(columns=["Gameweek", "NetProfitEUR", "Bets"])
+
+    settled = settled_df.copy()
+    settled["Date"] = pd.to_datetime(settled["Date"], errors="coerce")
+    settled["Odds"] = pd.to_numeric(settled["Odds"], errors="coerce")
+    if "StakeEUR" in settled.columns:
+        settled["StakeEUR"] = pd.to_numeric(settled["StakeEUR"], errors="coerce").fillna(default_stake)
+    else:
+        settled["StakeEUR"] = default_stake
+    settled["BetOutcome"] = settled["BetOutcome"].astype(str).str.strip().str.lower()
+    settled = settled.dropna(subset=["Date", "Odds"])
+    settled = settled[(settled["Odds"] > 1.0) & (settled["StakeEUR"] > 0)]
+    settled = settled[settled["BetOutcome"].isin(["won", "lost"])]
+    if settled.empty:
+        return pd.DataFrame(columns=["Gameweek", "NetProfitEUR", "Bets"])
+
+    settled["NetProfitEUR"] = settled.apply(
+        lambda row: (
+            row["Odds"] * row["StakeEUR"] - row["StakeEUR"]
+            if row["BetOutcome"] == "won"
+            else -row["StakeEUR"]
+        ),
+        axis=1,
+    )
+    explicit_gameweek_column = next(
+        (column for column in ("Gameweek", "Round", "Matchday") if column in settled.columns),
+        None,
+    )
+    if explicit_gameweek_column is not None:
+        explicit_values = settled[explicit_gameweek_column].astype(str).str.extract(r"(\d+)", expand=False)
+        settled["Gameweek"] = pd.to_numeric(explicit_values, errors="coerce")
+        settled = settled.dropna(subset=["Gameweek"])
+        settled["Gameweek"] = settled["Gameweek"].astype(int)
+    else:
+        settled = settled.sort_values("Date").reset_index(drop=True)
+        date_gaps = settled["Date"].diff().dt.total_seconds().div(86400).fillna(0)
+        # Friday-to-Monday matches stay in one cluster; a four-day gap starts the next gameweek.
+        settled["Gameweek"] = date_gaps.gt(3).cumsum() + 1
+
+    pnl = settled.groupby("Gameweek", as_index=False).agg(
+        NetProfitEUR=("NetProfitEUR", "sum"),
+        Bets=("NetProfitEUR", "size"),
+    )
+    pnl["Gameweek"] = pnl["Gameweek"].map(lambda value: f"GW {int(value)}")
+    return pnl.sort_values("Gameweek", key=lambda values: values.str.extract(r"(\d+)")[0].astype(int)).reset_index(drop=True)
 
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -951,7 +1000,7 @@ def main():
     with tabs[2]:
         st.subheader(f"Model Season Performance • {current_season_label}")
         if season_eval["summary"].empty:
-            st.info("No completed fixtures are available for model evaluation in the current season.")
+            st.info("Δεν υπάρχουν ακόμη ιστορικά δεδομένα αγωνιστικών για υπολογισμό κέρδους.")
         else:
             metrics = season_eval["summary"]
             total_bets = int(metrics.loc[metrics["Metric"] == "Total Season Bets", "Value"].iat[0])
@@ -964,45 +1013,71 @@ def main():
             col_2.metric("Realized Win Rate (%)", f"{realized_win_rate:.2f}%")
             col_3.metric("Total Net Profit / Yield", f"€{total_profit:,.2f}")
 
-            risk_summary = season_eval["risk_summary"]
-            if not risk_summary.empty:
-                fig_risk = px.bar(
-                    risk_summary,
-                    x="RiskTier",
-                    y=["RealizedWinRate_%", "ROI_%"],
-                    barmode="group",
-                    title="Realized Win Rate & ROI by Risk Tier",
-                    labels={"value": "Metric", "RiskTier": "Risk Tier"},
-                )
-                st.plotly_chart(fig_risk)
-
-            team_summary = season_eval["team_summary"]
-            if not team_summary.empty:
-                fig_team = go.Figure()
-                fig_team.add_trace(go.Bar(
-                    x=team_summary["Accuracy_%"],
-                    y=team_summary["Team"],
-                    orientation="h",
-                    name="Prediction Accuracy %",
-                    marker_color="steelblue",
-                ))
-                fig_team.add_trace(go.Bar(
-                    x=team_summary["AvgEdge_%"],
-                    y=team_summary["Team"],
-                    orientation="h",
-                    name="Average Edge %",
-                    marker_color="darkorange",
-                ))
-                fig_team.update_layout(
-                    barmode="group",
-                    title="Prediction Accuracy & Edge by Team",
-                    xaxis_title="%",
-                    yaxis_title="Team",
-                )
-                st.plotly_chart(fig_team)
-
             season_log = season_eval["log"].copy()
             if not season_log.empty:
+                gameweek_pnl = build_gameweek_pnl(season_log)
+                if gameweek_pnl.empty:
+                    st.info("Δεν υπάρχουν ακόμη ιστορικά δεδομένα αγωνιστικών για υπολογισμό κέρδους.")
+                else:
+                    gameweek_pnl["BarColor"] = gameweek_pnl["NetProfitEUR"].ge(0).map(
+                        {True: "#00CC96", False: "#EF553B"}
+                    )
+                    gameweek_pnl["BarText"] = gameweek_pnl.apply(
+                        lambda row: (
+                            f"{int(row['Bets'])} ματς<br>"
+                            f"<b>{row['NetProfitEUR']:+.2f}€</b>"
+                        ),
+                        axis=1,
+                    )
+                    bar_width = max(0.35, min(0.8, 12.0 / len(gameweek_pnl)))
+                    label_font_size = max(8, min(12, 180 // len(gameweek_pnl)))
+                    fig_gameweek = go.Figure(
+                        go.Bar(
+                            x=gameweek_pnl["Gameweek"],
+                            y=gameweek_pnl["NetProfitEUR"],
+                            text=gameweek_pnl["BarText"],
+                            textposition="outside",
+                            width=bar_width,
+                            textfont={"size": label_font_size},
+                            marker_color=gameweek_pnl["BarColor"],
+                            customdata=gameweek_pnl["Bets"],
+                            hovertemplate=(
+                                "<b>%{x}</b><br>"
+                                "Net P&L: €%{y:.2f}<br>"
+                                "Bets: %{customdata}<extra></extra>"
+                            ),
+                        )
+                    )
+                    fig_gameweek.update_layout(
+                        title="Gameweek P&L",
+                        xaxis_title="Gameweek",
+                        yaxis_title="Net Profit / Loss (€)",
+                        template="plotly_dark",
+                        plot_bgcolor="rgba(0,0,0,0)",
+                        paper_bgcolor="rgba(0,0,0,0)",
+                        showlegend=False,
+                        height=430,
+                        margin={"l": 70, "r": 25, "t": 75, "b": 60},
+                        uniformtext={"minsize": label_font_size, "mode": "show"},
+                        shapes=[
+                            {
+                                "type": "line",
+                                "xref": "paper",
+                                "x0": 0,
+                                "x1": 1,
+                                "yref": "y",
+                                "y0": 0,
+                                "y1": 0,
+                                "line": {"color": "#E5EDF9", "width": 2},
+                            }
+                        ],
+                    )
+                    st.plotly_chart(
+                        fig_gameweek,
+                        use_container_width=True,
+                        config={"responsive": True},
+                    )
+
                 season_log["Date"] = pd.to_datetime(season_log["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
                 season_log["ModelProb_%"] = season_log["ModelProb_%"].round(2)
                 season_log["Odds"] = season_log["Odds"].round(2)
@@ -1011,6 +1086,8 @@ def main():
                 season_log = season_log[["Date", "HomeTeam", "AwayTeam", "ActualResult", "SelectedOutcome", "ModelProb_%", "Odds", "RiskTier", "StakeEUR", "BetOutcome", "NetProfitEUR"]].copy()
                 st.subheader("Completed Fixture Bet Log")
                 st.dataframe(season_log, hide_index=True)
+            else:
+                st.info("Δεν υπάρχουν ακόμη ιστορικά δεδομένα αγωνιστικών για υπολογισμό κέρδους.")
 
 
 if __name__ == "__main__":
