@@ -31,15 +31,20 @@ jobs:
           pip install -r requirements.txt
           pip install requests pandas
 
-      - name: 1. Fetch live Stoiximan odds
+      - name: 1. Update completed match results & rebuild features
+        run: |
+          python data_tools/download_historical_data.py --sync
+          python data_tools/build_features.py
+
+      - name: 2. Fetch live Stoiximan odds
         run: |
           python fetch_odds.py
 
-      - name: 2. Run live prediction pipeline
+      - name: 3. Run live prediction pipeline
         run: |
           python app/live_pipeline.py
 
-      - name: 3. Commit and push updated data
+      - name: 4. Commit and push updated data
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -47,6 +52,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Automated pipeline update: refreshed Stoiximan odds & live predictions"
+            git commit -m "Automated pipeline update: synced completed results, Stoiximan odds & predictions"
             git push origin HEAD:${{ github.ref_name }}
-          f
+          fi
