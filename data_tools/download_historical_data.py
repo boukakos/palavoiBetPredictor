@@ -140,9 +140,14 @@ def main():
 
     seasons = args.season or resolve_active_season_candidates()
     if args.sync:
-        seasons = [season for season in seasons if season in resolve_active_season_candidates()]
-        if not seasons:
-            seasons = resolve_active_season_candidates()[:1]
+        if args.season:
+            seasons = [season for season in seasons if season in resolve_active_season_candidates()]
+            if not seasons:
+                seasons = resolve_active_season_candidates()[:1]
+        else:
+            # Only the current and previous season ever change; the rest of
+            # DEFAULT_SEASONS is static history, so skip refetching it here.
+            seasons = resolve_active_season_candidates()[:2]
         sync_historical_data(raw_file=RAW_FILE, seasons=seasons, verbose=True)
         return
 

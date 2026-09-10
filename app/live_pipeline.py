@@ -364,6 +364,13 @@ def extract_form(history, venue_filter=None):
     }
 
 
+def safe_int(value, default=0):
+    numeric = pd.to_numeric(value, errors="coerce")
+    if pd.isna(numeric):
+        return default
+    return int(numeric)
+
+
 def build_team_history(raw_history_df, team_name, as_of_date):
     team_matches = []
     for row in raw_history_df.sort_values("Date").itertuples(index=False):
@@ -395,13 +402,13 @@ def build_team_history(raw_history_df, team_name, as_of_date):
                 "Opponent": opponent,
                 "Venue": venue,
                 "Pts": pts,
-                "GF": int(gf),
-                "GA": int(ga),
-                "SoT_F": int(sot_f),
-                "SoT_A": int(sot_a),
-                "Corners_F": int(corners),
-                "Yellow": int(yellow),
-                "Red": int(red),
+                "GF": safe_int(gf),
+                "GA": safe_int(ga),
+                "SoT_F": safe_int(sot_f),
+                "SoT_A": safe_int(sot_a),
+                "Corners_F": safe_int(corners),
+                "Yellow": safe_int(yellow),
+                "Red": safe_int(red),
             }
         )
 

@@ -1,16 +1,22 @@
-name: Auto Betting Pipeline
+name: Backfill Match Stats
 
 on:
   schedule:
-    # Κάθε μέρα στις 21:00 UTC = 00:00 μεσάνυχτα ώρα Ελλάδας
-    - cron: '0 21 * * *'
+    # Runs daily at 09:00 UTC, ~12h offset from the main Pass A pipeline
+    # (21:00 UTC). football-data.co.uk publishes final scores immediately
+    # but fills in shots/corners/cards/closing odds 1-2 days later. Because
+    # the sync merge always lets the freshest fetch overwrite a match's
+    # existing row (keyed by Date+HomeTeam+AwayTeam, no duplicates), running
+    # this daily lets any still-incomplete match get enriched on the next
+    # day(s) it becomes available, without needing exact timing.
+    - cron: '0 9 * * *'
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  update-pipeline:
+  backfill-results:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,22 +35,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install requests pandas
 
-      - name: 1. Update completed match results & rebuild features
+      - name: 1. Re-sync recent results & rebuild features
         run: |
           python data_tools/download_historical_data.py --sync
           python data_tools/build_features.py
 
-      - name: 2. Fetch live Stoiximan odds
-        run: |
-          python fetch_odds.py
-
-      - name: 3. Run live prediction pipeline
-        run: |
-          python app/live_pipeline.py
-
-      - name: 4. Commit and push updated data
+      - name: 2. Commit and push updated data
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"
@@ -53,6 +50,6 @@ jobs:
           if git diff --staged --quiet; then
             echo "No changes to commit."
           else
-            git commit -m "Automated pipeline update: synced completed results, Stoiximan odds & predictions"
+            git commit -m "Automated backfill: enriched recent match stats/odds"
             git push origin HEAD:${{ github.ref_name }}
           fi
