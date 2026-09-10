@@ -120,15 +120,22 @@ def parse_date_series(values):
         return pd.to_datetime(pd.Series([], dtype="datetime64[ns]"))
 
     string_values = values.astype(str).str.strip().replace({"nan": "", "NaT": "", "None": ""}, regex=False)
-    parsed = pd.to_datetime(string_values, format="mixed", errors="coerce")
-    fallback_mask = parsed.isna()
-    if fallback_mask.any():
-        fallback = pd.to_datetime(string_values[fallback_mask], format="%d/%m/%Y", errors="coerce")
-        parsed[fallback_mask] = fallback
-    if parsed.isna().any():
-        parsed = parsed.combine_first(pd.to_datetime(string_values, format="%Y-%m-%d", errors="coerce"))
-    if parsed.isna().any():
-        parsed = parsed.combine_first(pd.to_datetime(string_values, format="mixed", dayfirst=True, errors="coerce"))
+    parsed = pd.Series(pd.NaT, index=string_values.index, dtype="datetime64[ns]")
+
+    # football-data.co.uk dates are DD/MM/YYYY; upcoming-fixture/prediction
+    # dates are ISO YYYY-MM-DD. Route each value to its unambiguous format
+    # instead of pandas' auto-inference, which silently misreads ambiguous
+    # slash dates (e.g. "04/09/2026") as month-first.
+    slash_mask = string_values.str.match(r"^\d{1,2}/\d{1,2}/\d{4}$")
+    parsed.loc[slash_mask] = pd.to_datetime(string_values[slash_mask], format="%d/%m/%Y", errors="coerce")
+
+    iso_mask = ~slash_mask & string_values.str.match(r"^\d{4}-\d{1,2}-\d{1,2}")
+    parsed.loc[iso_mask] = pd.to_datetime(string_values[iso_mask], format="mixed", errors="coerce")
+
+    remaining = parsed.isna() & string_values.ne("")
+    if remaining.any():
+        parsed.loc[remaining] = pd.to_datetime(string_values[remaining], format="mixed", dayfirst=True, errors="coerce")
+
     return parsed
 
 
