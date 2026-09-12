@@ -862,6 +862,64 @@ def load_status_info() -> tuple[str, int]:
     return timestamp, len(fixture_df)
 
 
+@st.cache_data(show_spinner=False)
+def count_completed_gameweeks(raw_df: pd.DataFrame) -> int:
+    """Count distinct gameweek clusters among the current season's completed
+    matches, using the same >3-day-gap heuristic as the season P&L chart, so
+    the upcoming-gameweek number stays consistent with that chart's labels."""
+    if raw_df.empty:
+        return 0
+    season_code = _coerce_season_code(raw_df)
+    if season_code is None:
+        return 0
+    season_df = raw_df[raw_df["Season"].astype(str).str.replace(r"[^0-9]", "", regex=True) == str(season_code)].copy()
+    if season_df.empty:
+        return 0
+    season_df["Date"] = parse_date_series(season_df["Date"])
+    completed = season_df.dropna(subset=["Date", "FTHG", "FTAG"])
+    if completed.empty:
+        return 0
+    completed = completed.sort_values("Date").reset_index(drop=True)
+    date_gaps = completed["Date"].diff().dt.total_seconds().div(86400).fillna(0)
+    return int((date_gaps.gt(3).cumsum() + 1).max())
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def get_current_gameweek_bets(schedule_df: pd.DataFrame, value_df: pd.DataFrame):
+    """Isolate the nearest date-cluster of upcoming fixtures (the current/next
+    gameweek) and return the 1X2 / O-U / BTTS value bets belonging to it.
+    Clustering uses the same >3-day-gap rule as the completed-season P&L
+    chart, applied here to upcoming fixtures instead of results, so this list
+    automatically rolls forward once a gameweek's matches are all played and
+    drop out of the upcoming-fixtures feed - no manual step needed."""
+    empty_bets = pd.DataFrame(columns=[
+        "MatchDate", "HomeTeam", "AwayTeam", "Market", "Outcome",
+        "ModelProbability", "Odds", "EdgePct", "RiskTier", "KellyStakeEUR",
+    ])
+    if schedule_df.empty or "MatchDate" not in schedule_df.columns:
+        return empty_bets, []
+
+    fixtures = schedule_df.copy()
+    fixtures["MatchDate"] = pd.to_datetime(fixtures["MatchDate"], errors="coerce")
+    fixtures = fixtures.dropna(subset=["MatchDate"]).sort_values("MatchDate").reset_index(drop=True)
+    if fixtures.empty:
+        return empty_bets, []
+
+    date_gaps = fixtures["MatchDate"].diff().dt.total_seconds().div(86400).fillna(0)
+    fixtures["_cluster"] = date_gaps.gt(3).cumsum()
+    current_fixtures = fixtures[fixtures["_cluster"] == 0]
+    current_pairs = sorted(set(zip(current_fixtures["HomeTeam"], current_fixtures["AwayTeam"])))
+
+    if value_df.empty or not current_pairs:
+        return empty_bets, current_pairs
+
+    pair_set = set(current_pairs)
+    in_current_gw = value_df.apply(lambda row: (row["HomeTeam"], row["AwayTeam"]) in pair_set, axis=1)
+    gw_bets = value_df[in_current_gw & value_df["Market"].isin(["1X2", "O/U 2.5", "BTTS"])].copy()
+    gw_bets = gw_bets.sort_values(["MatchDate", "EdgePct"], ascending=[True, False]).reset_index(drop=True)
+    return gw_bets, current_pairs
+
+
 def main():
     with st.sidebar:
         st.title("⚽ palavoiBetPredictor ")
@@ -887,11 +945,14 @@ def main():
     latest_season = _coerce_season_code(raw_history)
     current_season_label = _format_season_label(latest_season)
     market_verdicts = build_market_verdicts(prediction_df)
+    current_gw_bets, current_gw_pairs = get_current_gameweek_bets(schedule_df, value_df)
+    current_gw_number = count_completed_gameweeks(raw_history) + 1
 
     tabs = st.tabs([
         "🔥 Live Value Bets & Predictions",
         "🏆 Premier League Standings",
         "📊 Model Season Performance & Completed Fixtures Predictions",
+        "🎯 Current Gameweek Bets",
     ])
 
     with tabs[0]:
@@ -1095,6 +1156,25 @@ def main():
                 st.dataframe(season_log, hide_index=True)
             else:
                 st.info("Δεν υπάρχουν ακόμη ιστορικά δεδομένα αγωνιστικών για υπολογισμό κέρδους.")
+
+    with tabs[3]:
+        st.subheader(f"🎯 Bets for Gameweek {current_gw_number}")
+        if not current_gw_pairs:
+            st.info("No upcoming fixtures are available yet for the next gameweek.")
+        elif current_gw_bets.empty:
+            st.info("No 1X2 / Over-Under 2.5 / BTTS value bets met the edge threshold for this gameweek's matches yet.")
+        else:
+            display_df = current_gw_bets.copy()
+            display_df["Match"] = display_df["HomeTeam"] + " vs " + display_df["AwayTeam"]
+            display_df["MatchDate"] = pd.to_datetime(display_df["MatchDate"], errors="coerce").dt.strftime("%Y-%m-%d %H:%M")
+            display_df["Model_%"] = (display_df["ModelProbability"] * 100.0).round(2)
+            display_df["Edge_%"] = display_df["EdgePct"].round(2)
+            display_df["Odds"] = display_df["Odds"].round(2)
+            display_df["StakeEUR"] = display_df["KellyStakeEUR"].round(2)
+            display_df["RiskTier"] = display_df["RiskTier"].map(format_risk_badge)
+            display_df = display_df.rename(columns={"Outcome": "Pick"})
+            show_cols = ["MatchDate", "Match", "Market", "Pick", "Odds", "Model_%", "Edge_%", "RiskTier", "StakeEUR"]
+            st.dataframe(display_df[show_cols], hide_index=True)
 
 
 if __name__ == "__main__":
