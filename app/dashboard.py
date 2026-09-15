@@ -19,6 +19,7 @@ PREDICTION_CANDIDATES = [
     REPO_ROOT / "data" / "live_upcoming_predictions.csv",
 ]
 PREDICTIONS_PATH = next((candidate for candidate in PREDICTION_CANDIDATES if candidate.exists()), PREDICTION_CANDIDATES[0])
+BETS_LOG_PATH = ROOT / "data" / "predictions" / "bets_log.csv"
 DEFAULT_BANKROLL_EUR = 1000.0
 
 st.set_page_config(page_title="palavoiBetPredictor ", page_icon="⚽", layout="wide")
@@ -209,6 +210,24 @@ def load_live_predictions() -> pd.DataFrame:
         df["MatchDate"] = pd.to_datetime(df["MatchDate"], errors="coerce")
     if "Date" in df.columns:
         df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+    return df
+
+
+@st.cache_data(show_spinner=False, ttl=60)
+def load_bets_ledger() -> pd.DataFrame:
+    """Load the persisted value-bets ledger written by live_pipeline.py's
+    append_gameweek_bets_to_ledger() and settled by data_tools/settle_bets.py."""
+    empty = pd.DataFrame(columns=[
+        "MatchDate", "HomeTeam", "AwayTeam", "Market", "Pick", "Odds",
+        "ModelProbabilityPct", "EdgePct", "RiskTier", "StakeEUR",
+        "ActualResult", "BetOutcome", "LoggedAt",
+    ])
+    if not BETS_LOG_PATH.exists():
+        return empty
+    df = pd.read_csv(BETS_LOG_PATH, low_memory=False)
+    if df.empty:
+        return empty
+    df["MatchDate"] = pd.to_datetime(df["MatchDate"], errors="coerce")
     return df
 
 
@@ -478,6 +497,13 @@ def build_gameweek_pnl(settled_df: pd.DataFrame, default_stake: float = 10.0) ->
     )
     pnl["Gameweek"] = pnl["Gameweek"].map(lambda value: f"GW {int(value)}")
     return pnl.sort_values("Gameweek", key=lambda values: values.str.extract(r"(\d+)")[0].astype(int)).reset_index(drop=True)
+
+
+def _assign_gameweek_numbers(dates: pd.Series) -> pd.Series:
+    """Per-row gameweek numbers for an already-date-sorted series, using the
+    same >3-day-gap clustering rule as build_gameweek_pnl()/count_completed_gameweeks()."""
+    date_gaps = dates.diff().dt.total_seconds().div(86400).fillna(0)
+    return (date_gaps.gt(3).cumsum() + 1).astype(int)
 
 
 @st.cache_data(show_spinner=False, ttl=60)
@@ -1146,14 +1172,23 @@ def main():
                         config={"responsive": True},
                     )
 
-                season_log["Date"] = pd.to_datetime(season_log["Date"], errors="coerce").dt.strftime("%Y-%m-%d")
-                season_log["ModelProb_%"] = season_log["ModelProb_%"].round(2)
-                season_log["Odds"] = season_log["Odds"].round(2)
-                season_log["StakeEUR"] = season_log["StakeEUR"].round(2)
-                season_log["NetProfitEUR"] = season_log["NetProfitEUR"].round(2)
-                season_log = season_log[["Date", "HomeTeam", "AwayTeam", "ActualResult", "SelectedOutcome", "ModelProb_%", "Odds", "RiskTier", "StakeEUR", "BetOutcome", "NetProfitEUR"]].copy()
                 st.subheader("Completed Fixture Bet Log")
-                st.dataframe(season_log, hide_index=True)
+                settled_bets = load_bets_ledger()
+                if not settled_bets.empty:
+                    settled_bets = settled_bets[settled_bets["BetOutcome"].isin(["Won", "Lost"])].copy()
+                if settled_bets.empty:
+                    st.info("No settled value bets logged yet. Bets are recorded automatically once a gameweek's fixtures are priced, and settled once results are in.")
+                else:
+                    settled_bets = settled_bets.sort_values("MatchDate").reset_index(drop=True)
+                    settled_bets["Gameweek"] = _assign_gameweek_numbers(settled_bets["MatchDate"])
+                    settled_bets["MatchDate"] = settled_bets["MatchDate"].dt.strftime("%Y-%m-%d")
+                    display_cols = ["MatchDate", "HomeTeam", "AwayTeam", "Market", "Pick", "Odds", "ModelProbabilityPct", "EdgePct", "RiskTier", "StakeEUR", "ActualResult", "BetOutcome"]
+                    gw_numbers = sorted(settled_bets["Gameweek"].dropna().unique().tolist())
+                    gw_subtabs = st.tabs([f"Gameweek {gw}" for gw in gw_numbers])
+                    for gw_subtab, gw in zip(gw_subtabs, gw_numbers):
+                        with gw_subtab:
+                            gw_table = settled_bets[settled_bets["Gameweek"] == gw][display_cols].reset_index(drop=True)
+                            st.dataframe(gw_table, hide_index=True)
             else:
                 st.info("Δεν υπάρχουν ακόμη ιστορικά δεδομένα αγωνιστικών για υπολογισμό κέρδους.")
 

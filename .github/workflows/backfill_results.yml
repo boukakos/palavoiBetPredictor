@@ -41,7 +41,11 @@ jobs:
           python data_tools/download_historical_data.py --sync
           python data_tools/build_features.py
 
-      - name: 2. Commit and push updated data
+      - name: 2. Settle pending bets in the ledger
+        run: |
+          python data_tools/settle_bets.py
+
+      - name: 3. Commit and push updated data
         if: always()
         run: |
           git config --global user.name "github-actions[bot]"

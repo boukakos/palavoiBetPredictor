@@ -37,6 +37,25 @@ REQUIRED_FIXTURE_COLUMNS = {
 }
 OUTPUT_CSV = PREDICTION_DIR / "live_upcoming_predictions.csv"
 OUTPUT_JSON = PREDICTION_DIR / "live_upcoming_predictions.json"
+BETS_LOG_FILE = PREDICTION_DIR / "bets_log.csv"
+BETS_LOG_COLUMNS = [
+    "MatchDate",
+    "HomeTeam",
+    "AwayTeam",
+    "Market",
+    "Pick",
+    "Odds",
+    "ModelProbabilityPct",
+    "EdgePct",
+    "RiskTier",
+    "StakeEUR",
+    "ActualResult",
+    "BetOutcome",
+    "LoggedAt",
+]
+LEDGER_MIN_EDGE_PERCENT = 3.0
+LEDGER_STANDARD_KELLY_FRACTION = 0.125
+LEDGER_LONGSHOT_KELLY_FRACTION = 0.0625
 
 FEATURES_1X2 = [
     "h_form_pts",
@@ -672,6 +691,96 @@ def classify_risk(probability: float, odds: float):
     return "[HIGH RISK / LONGSHOT]"
 
 
+def _ledger_stake(probability: float, odds: float, risk_tier: str) -> float:
+    fraction = LEDGER_STANDARD_KELLY_FRACTION if risk_tier == "Standard Value" else LEDGER_LONGSHOT_KELLY_FRACTION
+    raw_stake = fractional_kelly(probability, odds, fraction) * 1000.0
+    return float(min(max(raw_stake, 0.0), 1000.0))
+
+
+def append_gameweek_bets_to_ledger(scored_df: pd.DataFrame):
+    """Append this run's qualifying value bets (1X2 + O/U 2.5, edge >= 3%)
+    to the persisted bets ledger, matching the same selection criteria as
+    the dashboard's "Current Gameweek Bets" tab exactly, so the ledger
+    records precisely what that tab showed at the time. Skips any
+    (date, teams, market, pick) combination already logged, so re-running
+    before kickoff (fresh odds each night) never creates duplicates."""
+    if scored_df.empty:
+        return
+
+    if BETS_LOG_FILE.exists():
+        existing_ledger = pd.read_csv(BETS_LOG_FILE, low_memory=False)
+    else:
+        existing_ledger = pd.DataFrame(columns=BETS_LOG_COLUMNS)
+
+    existing_keys = set(
+        zip(
+            existing_ledger.get("MatchDate", pd.Series(dtype=str)).astype(str),
+            existing_ledger.get("HomeTeam", pd.Series(dtype=str)).astype(str),
+            existing_ledger.get("AwayTeam", pd.Series(dtype=str)).astype(str),
+            existing_ledger.get("Market", pd.Series(dtype=str)).astype(str),
+            existing_ledger.get("Pick", pd.Series(dtype=str)).astype(str),
+        )
+    )
+
+    logged_at = pd.Timestamp.now().isoformat()
+    new_rows = []
+
+    for _, row in scored_df.iterrows():
+        match_date = row["MatchDate"]
+        match_date_str = match_date.date().isoformat() if hasattr(match_date, "date") else str(match_date)
+        home_team = row["HomeTeam"]
+        away_team = row["AwayTeam"]
+
+        candidates = [
+            ("1X2", "H", row.get("Prob_Home"), safe_odd(row.get("B365H", np.nan))),
+            ("1X2", "D", row.get("Prob_Draw"), safe_odd(row.get("B365D", np.nan))),
+            ("1X2", "A", row.get("Prob_Away"), safe_odd(row.get("B365A", np.nan))),
+            ("O/U 2.5", "Over", row.get("Prob_Over25"), safe_odd(row.get("B365>2.5", np.nan))),
+            ("O/U 2.5", "Under", row.get("Prob_Under25"), safe_odd(row.get("B365<2.5", np.nan))),
+        ]
+
+        for market, pick, probability, odds in candidates:
+            if pd.isna(probability) or pd.isna(odds):
+                continue
+            probability = float(probability)
+            odds = float(odds)
+            current_edge = edge_pct(probability, odds)
+            if current_edge < LEDGER_MIN_EDGE_PERCENT:
+                continue
+
+            key = (match_date_str, str(home_team), str(away_team), market, pick)
+            if key in existing_keys:
+                continue
+
+            risk_tier = classify_risk(probability, odds)
+            stake = _ledger_stake(probability, odds, risk_tier)
+            new_rows.append({
+                "MatchDate": match_date_str,
+                "HomeTeam": home_team,
+                "AwayTeam": away_team,
+                "Market": market,
+                "Pick": pick,
+                "Odds": round(odds, 2),
+                "ModelProbabilityPct": round(probability * 100.0, 2),
+                "EdgePct": round(current_edge, 2),
+                "RiskTier": risk_tier,
+                "StakeEUR": round(stake, 2),
+                "ActualResult": "",
+                "BetOutcome": "",
+                "LoggedAt": logged_at,
+            })
+            existing_keys.add(key)
+
+    if not new_rows:
+        return
+
+    PREDICTION_DIR.mkdir(parents=True, exist_ok=True)
+    updated_ledger = pd.concat([existing_ledger, pd.DataFrame(new_rows)], ignore_index=True)
+    updated_ledger = updated_ledger[BETS_LOG_COLUMNS]
+    updated_ledger.to_csv(BETS_LOG_FILE, index=False)
+    print(f"Bets ledger: appended {len(new_rows)} new bet(s) to {BETS_LOG_FILE}")
+
+
 def bet_verdict(probability: float, odds: float, kelly_fraction: float = None) -> tuple[str, str]:
     ev_decimal = expected_value_decimal(probability, odds)
     if kelly_fraction is None:
@@ -1278,6 +1387,7 @@ def main():
 
     value_df = generate_value_bets(scored_df)
     save_predictions(scored_df)
+    append_gameweek_bets_to_ledger(scored_df)
     print_prediction_dashboard(scored_df, value_df)
     print_value_bet_table(value_df)
 
