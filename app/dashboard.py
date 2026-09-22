@@ -930,6 +930,29 @@ def count_completed_gameweeks(raw_df: pd.DataFrame) -> int:
     return int((date_gaps.gt(3).cumsum() + 1).max())
 
 
+def _real_gameweek_lookup(raw_df: pd.DataFrame) -> dict:
+    """Map each completed-match calendar date (current season) to its real
+    gameweek number, using the same _assign_gameweek_numbers() clustering
+    applied to the FULL season's results - so a caller working with only a
+    partial date range (like the bets ledger, which only starts at GW5) can
+    look up the true gameweek number instead of re-clustering from scratch
+    and starting back at 1."""
+    if raw_df.empty:
+        return {}
+    season_code = _coerce_season_code(raw_df)
+    if season_code is None:
+        return {}
+    season_df = raw_df[raw_df["Season"].astype(str).str.replace(r"[^0-9]", "", regex=True) == str(season_code)].copy()
+    if season_df.empty:
+        return {}
+    season_df["Date"] = parse_date_series(season_df["Date"])
+    completed = season_df.dropna(subset=["Date", "FTHG", "FTAG"]).sort_values("Date").reset_index(drop=True)
+    if completed.empty:
+        return {}
+    completed["Gameweek"] = _assign_gameweek_numbers(completed["Date"])
+    return dict(zip(completed["Date"].dt.date.astype(str), completed["Gameweek"]))
+
+
 @st.cache_data(show_spinner=False, ttl=60)
 def get_current_gameweek_bets(schedule_df: pd.DataFrame, value_df: pd.DataFrame):
     """Isolate the nearest date-cluster of upcoming fixtures (the current/next
@@ -1124,7 +1147,10 @@ def main():
             col_2.metric("Realized Win Rate (%)", f"{ledger_metrics['realized_win_rate']:.2f}%")
             col_3.metric("Total Net Profit / Yield", f"€{ledger_metrics['total_profit']:,.2f}")
 
-            gameweek_pnl = build_gameweek_pnl(settled_bets.rename(columns={"MatchDate": "Date"}))
+            chart_input = settled_bets.rename(columns={"MatchDate": "Date"}).copy()
+            gw_lookup = _real_gameweek_lookup(raw_history)
+            chart_input["Gameweek"] = chart_input["Date"].dt.date.astype(str).map(gw_lookup)
+            gameweek_pnl = build_gameweek_pnl(chart_input)
             if gameweek_pnl.empty:
                 st.info("Δεν υπάρχουν ακόμη ιστορικά δεδομένα αγωνιστικών για υπολογισμό κέρδους.")
             else:
