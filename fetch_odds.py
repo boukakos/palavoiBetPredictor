@@ -17,7 +17,7 @@ TEAM_MAPPING = {
     "Manchester City": "Man City",
     "Manchester United": "Man United",
     "Newcastle United": "Newcastle",
-    "Nottingham Forest": "Nottingham",
+    "Nottingham Forest": "Nott'm Forest",
     "Sheffield United": "Sheffield Utd",
     "Luton Town": "Luton",
     "Leicester City": "Leicester",
