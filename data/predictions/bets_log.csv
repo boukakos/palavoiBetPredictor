@@ -16,22 +16,22 @@ MatchDate,HomeTeam,AwayTeam,Market,Pick,Odds,ModelProbabilityPct,EdgePct,RiskTie
 2026-09-20,Man City,Sunderland,1X2,D,5.5,20.06,10.35,[HIGH RISK / LONGSHOT],1.44,5-3,Lost,2026-09-15T23:16:06.511295
 2026-09-19,Tottenham,Aston Villa,1X2,A,3.6,29.11,4.81,[HIGH RISK / LONGSHOT],1.16,2-3,Won,2026-09-16T23:20:36.122461
 2026-09-19,Newcastle,Hull,1X2,A,5.5,19.38,6.57,[HIGH RISK / LONGSHOT],0.91,2-1,Lost,2026-09-17T23:12:02.069613
-2026-10-10,Arsenal,Leeds,1X2,A,8.5,16.31,38.6,[HIGH RISK / LONGSHOT],3.22,,,2026-09-20T22:47:20.913373
-2026-10-11,Liverpool,Man City,1X2,A,2.2,47.62,4.77,Standard Value,4.97,,,2026-09-20T22:47:20.913373
-2026-10-11,Liverpool,Man City,O/U 2.5,Under,2.25,46.36,4.3,Standard Value,4.3,,,2026-09-20T22:47:20.913373
-2026-10-10,Aston Villa,Brentford,1X2,D,3.5,32.42,13.46,[HIGH RISK / LONGSHOT],3.36,,,2026-09-21T23:43:24.792647
-2026-10-10,Chelsea,Bournemouth,1X2,A,3.9,29.2,13.9,[HIGH RISK / LONGSHOT],2.99,,,2026-09-21T23:43:24.792647
-2026-10-10,Chelsea,Bournemouth,O/U 2.5,Under,2.75,46.3,27.32,Standard Value,19.51,,,2026-09-21T23:43:24.792647
-2026-10-10,Sunderland,Brighton,O/U 2.5,Over,1.82,57.87,5.33,Standard Value,8.12,,,2026-09-21T23:43:24.792647
-2026-10-10,Ipswich,Fulham,1X2,D,3.5,29.68,3.87,[HIGH RISK / LONGSHOT],0.97,,,2026-09-21T23:43:24.792647
-2026-10-10,Man United,Tottenham,O/U 2.5,Under,2.45,44.69,9.5,Standard Value,8.19,,,2026-09-21T23:43:24.792647
-2026-10-11,Crystal Palace,Nott'm Forest,O/U 2.5,Over,1.94,54.29,5.33,Standard Value,7.08,,,2026-09-21T23:43:24.792647
-2026-10-11,Hull,Everton,O/U 2.5,Over,2.17,53.46,16.0,Standard Value,17.1,,,2026-09-21T23:43:24.792647
-2026-10-12,Coventry,Newcastle,1X2,A,2.05,58.1,19.1,Standard Value,22.74,,,2026-09-21T23:43:24.792647
-2026-10-11,Crystal Palace,Nott'm Forest,1X2,H,2.6,42.17,9.65,Standard Value,7.54,,,2026-09-22T23:21:24.316441
-2026-10-12,Coventry,Newcastle,O/U 2.5,Under,2.3,45.13,3.8,Standard Value,3.66,,,2026-09-25T23:41:08.127494
-2026-10-10,Arsenal,Leeds,O/U 2.5,Over,1.72,60.22,3.58,Standard Value,6.21,,,2026-10-07T00:13:43.942842
-2026-10-10,Sunderland,Brighton,1X2,A,2.3,45.85,5.44,Standard Value,5.24,,,2026-10-09T00:46:08.975184
+2026-10-10,Arsenal,Leeds,1X2,A,8.5,16.31,38.6,[HIGH RISK / LONGSHOT],3.22,2-1,Lost,2026-09-20T22:47:20.913373
+2026-10-11,Liverpool,Man City,1X2,A,2.2,47.62,4.77,Standard Value,4.97,0-3,Won,2026-09-20T22:47:20.913373
+2026-10-11,Liverpool,Man City,O/U 2.5,Under,2.25,46.36,4.3,Standard Value,4.3,0-3,Lost,2026-09-20T22:47:20.913373
+2026-10-10,Aston Villa,Brentford,1X2,D,3.5,32.42,13.46,[HIGH RISK / LONGSHOT],3.36,2-2,Won,2026-09-21T23:43:24.792647
+2026-10-10,Chelsea,Bournemouth,1X2,A,3.9,29.2,13.9,[HIGH RISK / LONGSHOT],2.99,5-1,Lost,2026-09-21T23:43:24.792647
+2026-10-10,Chelsea,Bournemouth,O/U 2.5,Under,2.75,46.3,27.32,Standard Value,19.51,5-1,Lost,2026-09-21T23:43:24.792647
+2026-10-10,Sunderland,Brighton,O/U 2.5,Over,1.82,57.87,5.33,Standard Value,8.12,0-2,Lost,2026-09-21T23:43:24.792647
+2026-10-10,Ipswich,Fulham,1X2,D,3.5,29.68,3.87,[HIGH RISK / LONGSHOT],0.97,2-1,Lost,2026-09-21T23:43:24.792647
+2026-10-10,Man United,Tottenham,O/U 2.5,Under,2.45,44.69,9.5,Standard Value,8.19,1-1,Won,2026-09-21T23:43:24.792647
+2026-10-11,Crystal Palace,Nott'm Forest,O/U 2.5,Over,1.94,54.29,5.33,Standard Value,7.08,3-1,Won,2026-09-21T23:43:24.792647
+2026-10-11,Hull,Everton,O/U 2.5,Over,2.17,53.46,16.0,Standard Value,17.1,2-2,Won,2026-09-21T23:43:24.792647
+2026-10-12,Coventry,Newcastle,1X2,A,2.05,58.1,19.1,Standard Value,22.74,4-1,Lost,2026-09-21T23:43:24.792647
+2026-10-11,Crystal Palace,Nott'm Forest,1X2,H,2.6,42.17,9.65,Standard Value,7.54,3-1,Won,2026-09-22T23:21:24.316441
+2026-10-12,Coventry,Newcastle,O/U 2.5,Under,2.3,45.13,3.8,Standard Value,3.66,4-1,Lost,2026-09-25T23:41:08.127494
+2026-10-10,Arsenal,Leeds,O/U 2.5,Over,1.72,60.22,3.58,Standard Value,6.21,2-1,Won,2026-10-07T00:13:43.942842
+2026-10-10,Sunderland,Brighton,1X2,A,2.3,45.85,5.44,Standard Value,5.24,0-2,Won,2026-10-09T00:46:08.975184
 2026-10-17,Everton,Chelsea,O/U 2.5,Under,2.18,48.59,5.93,Standard Value,6.28,,,2026-10-10T23:57:16.159503
 2026-10-17,Brentford,Liverpool,1X2,A,2.38,43.46,3.43,Standard Value,3.11,,,2026-10-10T23:57:16.159503
 2026-10-17,Brentford,Liverpool,O/U 2.5,Under,2.3,45.16,3.86,Standard Value,3.71,,,2026-10-10T23:57:16.159503
