@@ -119,9 +119,9 @@ MatchDate,HomeTeam,AwayTeam,Market,Pick,Odds,ModelProbabilityPct,EdgePct,RiskTie
 2026-11-22,Hull,Brighton,1X2,D,4.2,27.41,15.1,[HIGH RISK / LONGSHOT],2.95,2-0,Lost,2026-11-14T01:06:47.049192
 2026-11-22,Hull,Brighton,O/U 2.5,Under,2.31,44.67,3.18,Standard Value,3.04,2-0,Won,2026-11-14T01:06:47.049192
 2026-11-22,Liverpool,Man United,O/U 2.5,Under,2.57,49.11,26.21,Standard Value,20.86,4-0,Lost,2026-11-14T01:06:47.049192
-2026-11-23,Brentford,Everton,O/U 2.5,Under,2.15,48.11,3.44,Standard Value,3.74,,,2026-11-14T01:06:47.049192
+2026-11-23,Brentford,Everton,O/U 2.5,Under,2.15,48.11,3.44,Standard Value,3.74,4-0,Lost,2026-11-14T01:06:47.049192
 2026-11-22,Liverpool,Man United,1X2,D,4.0,25.98,3.92,[HIGH RISK / LONGSHOT],0.82,4-0,Lost,2026-11-15T00:29:03.440158
-2026-11-23,Brentford,Everton,1X2,D,3.5,29.8,4.31,[HIGH RISK / LONGSHOT],1.08,,,2026-11-15T00:29:03.440158
+2026-11-23,Brentford,Everton,1X2,D,3.5,29.8,4.31,[HIGH RISK / LONGSHOT],1.08,4-0,Lost,2026-11-15T00:29:03.440158
 2026-11-21,Man City,Fulham,1X2,D,5.25,19.66,3.2,[HIGH RISK / LONGSHOT],0.47,1-1,Won,2026-11-21T01:52:07.976014
 2026-11-28,Man United,Brentford,O/U 2.5,Under,2.3,47.02,8.15,Standard Value,7.84,,,2026-11-22T00:45:50.140634
 2026-11-28,Ipswich,Aston Villa,O/U 2.5,Under,2.3,46.14,6.11,Standard Value,5.88,,,2026-11-22T00:45:50.140634
